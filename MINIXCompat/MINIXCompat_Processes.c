@@ -18,6 +18,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include <arpa/inet.h> /* for ntohs et al */
 #include <sys/stat.h>
 
 #include "MINIXCompat_Types.h"

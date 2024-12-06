@@ -18,11 +18,16 @@
 #include <string.h>
 #include <unistd.h>
 
+#include <arpa/inet.h> /* for ntohs et al */
 #include <sys/stat.h>
 
 #include "MINIXCompat_Types.h"
 #include "MINIXCompat_Errors.h"
 
+#ifndef HTONS
+#define HTONS(x) ((x) = htons(x))
+#define HTONL(x) ((x) = htonl(x))
+#endif
 
 MINIXCOMPAT_SOURCE_BEGIN
 
