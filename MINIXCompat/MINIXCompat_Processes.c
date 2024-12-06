@@ -18,7 +18,9 @@
 #include <string.h>
 #include <unistd.h>
 
+#include <arpa/inet.h> /* for ntohs et al */
 #include <sys/stat.h>
+#include <sys/wait.h>
 
 #include "MINIXCompat_Types.h"
 #include "MINIXCompat.h"
@@ -306,7 +308,7 @@ static int MINIXCompat_Processes_HostSignalForMINIXSignal(minix_signal_t minix_s
         case minix_SIGILL: return SIGILL;
         case minix_SIGTRAP: return SIGTRAP;
         case minix_SIGABRT: return SIGABRT;
-        case minix_SIGUNUSED: return SIGEMT; // Should never be used, but available just in case.
+        case minix_SIGUNUSED: return SIGXFSZ; // Should never be used, but available just in case.
         case minix_SIGFPE: return SIGFPE;
         case minix_SIGKILL: return SIGKILL;
         case minix_SIGUSR1: return SIGUSR1;

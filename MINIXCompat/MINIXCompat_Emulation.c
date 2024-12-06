@@ -15,6 +15,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <arpa/inet.h> /* for ntohs et al */
+
 #include "MINIXCompat_Types.h"
 #include "MINIXCompat_Executable.h"
 #include "MINIXCompat_SysCalls.h"
@@ -109,7 +111,7 @@ int MINIXCompat_CPU_Trap_Callback(int trap)
                     m68k_set_reg(M68K_REG_D0, 0xFFFFFFFF);
                     break;
             }
-            
+
             handled = true;
         } break;
 

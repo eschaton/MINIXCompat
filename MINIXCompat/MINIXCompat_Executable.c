@@ -238,7 +238,7 @@ static int MINIXExecutableRelocate(FILE *pef, struct MINIXCompat_Executable *peh
 
                 MINIXExecutableRelocateLongAtOffset(buf, MINIXCompat_Executable_Base, relocation_offset);
             } else if ((b & 0x01) == 0x01) {
-                return -EBADEXEC;
+                return -ENOEXEC;
             }
         } while (!done);
     }
