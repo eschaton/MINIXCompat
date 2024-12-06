@@ -477,9 +477,9 @@ static void MINIXCompat_File_MINIXStatBufForHostStatBuf(minix_stat_t * _Nonnull 
     minix_stat_buf->st_gid = host_stat_buf->st_gid; //xxx translate?
     minix_stat_buf->st_rdev = host_stat_buf->st_rdev; //xxx translate?
     minix_stat_buf->st_size = MINIXCompat_File_MINIXStatSizeForHostStatSize(host_stat_buf->st_size);
-    minix_stat_buf->minix_st_atime = (minix_time_t) host_stat_buf->st_atimespec.tv_sec;
-    minix_stat_buf->minix_st_mtime = (minix_time_t) host_stat_buf->st_mtimespec.tv_sec;
-    minix_stat_buf->minix_st_ctime = (minix_time_t) host_stat_buf->st_ctimespec.tv_sec;
+    minix_stat_buf->minix_st_atime = (minix_time_t) host_stat_buf->st_atim.tv_sec;
+    minix_stat_buf->minix_st_mtime = (minix_time_t) host_stat_buf->st_mtim.tv_sec;
+    minix_stat_buf->minix_st_ctime = (minix_time_t) host_stat_buf->st_ctim.tv_sec;
 }
 
 int16_t MINIXCompat_File_Stat(const char * _Nonnull minix_path, minix_stat_t * _Nonnull minix_stat_buf)
