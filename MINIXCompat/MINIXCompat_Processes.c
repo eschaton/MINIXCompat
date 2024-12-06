@@ -20,6 +20,7 @@
 
 #include <arpa/inet.h> /* for ntohs et al */
 #include <sys/stat.h>
+#include <sys/wait.h>
 
 #include "MINIXCompat_Types.h"
 #include "MINIXCompat.h"
