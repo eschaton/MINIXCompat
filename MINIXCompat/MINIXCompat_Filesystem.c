@@ -331,6 +331,8 @@ int16_t MINIXCompat_File_Close(minix_fd_t minix_fd)
     int close_result = close(host_fd);
     if (close_result == -1) {
         result = -MINIXCompat_Errors_MINIXErrorForHostError(errno);
+    } else {
+        result = close_result;
     }
 
     MINIXCompat_fd_ClearHostDescriptor(minix_fd);
