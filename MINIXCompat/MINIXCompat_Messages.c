@@ -16,6 +16,10 @@
 
 #include "MINIXCompat_Types.h"
 
+#ifndef HTONS
+#define HTONS(x) ((x) = htons(x))
+#define HTONL(x) ((x) = htonl(x))
+#endif
 
 MINIXCOMPAT_SOURCE_BEGIN
 
@@ -25,7 +29,7 @@ MINIXCOMPAT_SOURCE_BEGIN
 static void MINIXCompat_Message_Swap_header(minix_message_t * _Nonnull msg)
 {
     assert(msg != NULL);
-    
+
     HTONS(msg->m_source);
     HTONS(msg->m_type);
 }
