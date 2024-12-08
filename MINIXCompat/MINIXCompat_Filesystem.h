@@ -106,6 +106,14 @@ typedef struct minix_stat {
 } MINIXCOMPAT_PACK_STRUCT minix_stat_t;
 
 
+/*! The position from which to seek. */
+typedef enum minix_whence : int16_t {
+    minix_SEEK_SET = 0,
+    minix_SEEK_CUR = 1,
+    minix_SEEK_END = 2,
+} minix_whence_t;
+
+
 /*!
  Create the file at the given MINIX relative or absolute path, with the given MINIX mode.
 
@@ -128,7 +136,7 @@ MINIXCOMPAT_EXTERN int16_t MINIXCompat_File_Read(minix_fd_t fd, void * _Nonnull 
 
 MINIXCOMPAT_EXTERN int16_t MINIXCompat_File_Write(minix_fd_t fd, void * _Nonnull buf, int16_t buf_size);
 
-MINIXCOMPAT_EXTERN int16_t MINIXCompat_File_Seek(minix_fd_t fd, minix_off_t offset, int16_t minix_whence);
+MINIXCOMPAT_EXTERN int16_t MINIXCompat_File_Seek(minix_fd_t fd, minix_off_t offset, minix_whence_t minix_whence);
 
 MINIXCOMPAT_EXTERN void MINIXCompat_File_StatSwap(minix_stat_t * _Nonnull minix_stat_buf);
 
