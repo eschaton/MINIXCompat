@@ -3,7 +3,7 @@
 CC = clang
 
 CFLAGS = -O2 -Wall
-CPPFLAGS += -MMD -IMusashi
+CPPFLAGS += -MMD -IMusashi -IMINIXCompat -DMUSASHI_CNF='"MINIXCompat_Musashi.h"'
 LIBS ::= -lm
 
 CC_FOR_BUILD ?= $(CC)
