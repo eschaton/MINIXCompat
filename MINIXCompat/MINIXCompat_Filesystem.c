@@ -9,6 +9,7 @@
 #include "MINIXCompat_Filesystem.h"
 
 #include <assert.h>
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stdbool.h>
@@ -49,19 +50,76 @@ static char *MINIXCOMPAT_PWD_Host = NULL;
 static size_t MINIXCOMPAT_PWD_Host_len = 0;
 
 
+/*!
+ A MINIX directory entry within a directory file.
+
+ Since MINIX (like UNIX V7) requires use of `open(2)` and `read(2)` to iterate a directory instead of directory-specific system calls, upon `open(2)` of a directory MINIXCompat needs to synthesize its contents. Note that `d_ino` needs swapping as well before being able to be passed back to MINIX.
+ */
+struct minix_dirent  {
+    /*! The inode for this entry; will be 0 for a deleted file or other gap. */
+    uint16_t d_ino;
+
+    /*! The name of this entry. */
+    char d_name[14];
+} MINIXCOMPAT_PACK_STRUCT;
+typedef struct minix_dirent minix_dirent_t;
+
+
 /*! The number of open files MINIX can have at one time. */
 #define MINIXCompat_fd_count 20
 
 /*!
- The mapping between MINIX file descriptors and host file descriptors.
+ A mapping between MINIX file descriptors and host file descriptors.
 
- This table is indexed by `minix_fd_t` with empty slots containing -1 and in-use slots containing zero or a positive number.
+ - Note: MINIX 1.5 is unlikely to support >32767 files in a directory due to use of 16-bit `int` in so many places…
  */
-static int MINIXCompat_fds_host[MINIXCompat_fd_count];
+typedef struct minix_fdmap {
+    /*! The host file descriptor. */
+    int host_fd;
+
+    /*! The MINIX file descriptor (also currently used as the index. */
+    minix_fd_t minix_fd;
+
+    /*! Whether the fd represents a file or a directory (or hasn't been checked). */
+    enum { f_unchecked, f_file, f_directory } f_type;
+
+    /*! If this is a directory, the synthetic directory contents. */
+    minix_dirent_t *dir_entries;
+
+    /*! If this is a directory, the number of entries it contains, rounded up to the next multiple of 32; empty entries have a 0 inode. */
+    int16_t dir_count;
+
+    /*! If this is a directory, the current directory read offset. */
+    minix_off_t dir_offset;
+} minix_fdmap_t;
+
+/*!
+ The table that maps between MINIX file descriptors and host file descriptors.
+
+ This table is indexed by `minix_fd_t` with empty slots containing a `minix_fd` member of `-1` and in-use slots containing zero or a positive number.
+
+ - Warning: Don't try treat a `host_fd` of `-1` as closed, because opening a directory doesn't keep the host file descriptor around due to the fact that `fopendir(2)` sets the close-on-exec bit, and we don't necessarily want that since it would be a behavior change for MINIX.
+ */
+static minix_fdmap_t MINIXCompat_fd_table[MINIXCompat_fd_count];
 
 
-void MINIXCompat_CWD_Initialize(void);
+// MARK: - Forward Declarations
 
+static void MINIXCompat_CWD_Initialize(void);
+
+static void MINIXCompat_fd_ClearDescriptorEntry(minix_fd_t minix_fd);
+
+static void MINIXCompat_File_MINIXStatBufForHostStatBuf(minix_stat_t * _Nonnull minix_stat_buf, struct stat * _Nonnull host_stat_buf);
+static minix_ino_t MINIXCompat_File_MINIXInodeForHostInode(ino_t host_inode);
+static int MINIXCompat_File_HostWhenceForMINIXWhence(minix_whence_t minix_whence);
+
+static int16_t MINIXCompat_Dir_Precache(const char * _Nullable host_path, minix_fd_t minix_fd);
+static int16_t MINIXCompat_Dir_CheckIfDirAndCache(const char * _Nonnull host_path, minix_fd_t minix_fd);
+static int16_t MINIXCompat_Dir_Read(minix_fd_t minix_fd, void *host_buf, int16_t host_buf_size);
+static int16_t MINIXCompat_Dir_Seek(minix_fd_t minix_fd, minix_off_t minix_offset, minix_whence_t minix_whence);
+
+
+// MARK: - Initialization
 
 void MINIXCompat_Filesystem_Initialize(void)
 {
@@ -85,14 +143,25 @@ void MINIXCompat_Filesystem_Initialize(void)
 
     // Set up the decriptor mapping table.
 
-    MINIXCompat_fds_host[0] = STDIN_FILENO;
-    MINIXCompat_fds_host[1] = STDOUT_FILENO;
-    MINIXCompat_fds_host[2] = STDERR_FILENO;
-
-    for (int i = 3; i < MINIXCompat_fd_count; i++) {
-        MINIXCompat_fds_host[i] = -1;
+    for (minix_fd_t i = 0; i < MINIXCompat_fd_count; i++) {
+        MINIXCompat_fd_ClearDescriptorEntry(i);
     }
+
+    // Set up stdio to match the host.
+
+    MINIXCompat_fd_table[0].host_fd = STDIN_FILENO;
+    MINIXCompat_fd_table[0].minix_fd = 0;
+    MINIXCompat_fd_table[0].f_type = f_file;
+
+    MINIXCompat_fd_table[1].host_fd = STDOUT_FILENO;
+    MINIXCompat_fd_table[1].minix_fd = 1;
+    MINIXCompat_fd_table[1].f_type = f_file;
+
+    MINIXCompat_fd_table[2].host_fd = STDERR_FILENO;
+    MINIXCompat_fd_table[2].minix_fd = 2;
+    MINIXCompat_fd_table[2].f_type = f_file;
 }
+
 
 // MARK: - Conversion to Host Paths
 
@@ -119,6 +188,7 @@ char *MINIXCompat_Filesystem_CopyHostPathForPath(const char *path)
 
     return out_path;
 }
+
 
 // MARK: - Working Directory
 
@@ -185,6 +255,7 @@ void MINIXCompat_CWD_Initialize(void)
     }
 }
 
+
 // MARK: - File Descriptors
 
 static bool MINIXCompat_fd_IsInRange(minix_fd_t minix_fd)
@@ -194,35 +265,51 @@ static bool MINIXCompat_fd_IsInRange(minix_fd_t minix_fd)
 
 static bool MINIXCompat_fd_IsOpen(minix_fd_t minix_fd)
 {
-    return (MINIXCompat_fds_host[minix_fd] != -1);
+    return (MINIXCompat_fd_table[minix_fd].minix_fd != -1);
 }
 
 static bool MINIXCompat_fd_IsClosed(minix_fd_t minix_fd)
 {
-    return (MINIXCompat_fds_host[minix_fd] == -1);
+    return (MINIXCompat_fd_table[minix_fd].minix_fd == -1);
 }
 
 static int MINIXCompat_fd_GetHostDescriptor(minix_fd_t minix_fd)
 {
     assert(MINIXCompat_fd_IsInRange(minix_fd));
 
-    return MINIXCompat_fds_host[minix_fd];
+    return MINIXCompat_fd_table[minix_fd].host_fd;
 }
 
 static void MINIXCompat_fd_SetHostDescriptor(minix_fd_t minix_fd, int host_fd)
 {
     assert(MINIXCompat_fd_IsInRange(minix_fd));
-    assert(MINIXCompat_fd_IsClosed(minix_fd));
 
-    MINIXCompat_fds_host[minix_fd] = host_fd;
+    MINIXCompat_fd_table[minix_fd].host_fd = host_fd;
+    MINIXCompat_fd_table[minix_fd].minix_fd = minix_fd;
+    MINIXCompat_fd_table[minix_fd].f_type = f_unchecked;
 }
 
-static void MINIXCompat_fd_ClearHostDescriptor(minix_fd_t minix_fd)
+static void MINIXCompat_fd_ClearDescriptorEntry(minix_fd_t minix_fd)
+{
+    assert(MINIXCompat_fd_IsInRange(minix_fd));
+
+    minix_fdmap_t *entry = &MINIXCompat_fd_table[minix_fd];
+
+    entry->host_fd = -1;
+    entry->minix_fd = -1;
+    entry->f_type = f_unchecked;
+    free(entry->dir_entries);
+    entry->dir_entries = NULL;
+    entry->dir_count = -1;
+    entry->dir_offset = -1;
+}
+
+static bool MINIXCompat_fd_IsDirectory(minix_fd_t minix_fd)
 {
     assert(MINIXCompat_fd_IsInRange(minix_fd));
     assert(MINIXCompat_fd_IsOpen(minix_fd));
 
-    MINIXCompat_fds_host[minix_fd] = -1;
+    return (MINIXCompat_fd_table[minix_fd].f_type == f_directory);
 }
 
 static minix_fd_t MINIXCompat_fd_FindNextAvailable(void)
@@ -235,6 +322,9 @@ static minix_fd_t MINIXCompat_fd_FindNextAvailable(void)
 
     return -ENFILE;
 }
+
+
+// MARK: - Files
 
 /*! Convert MINIX open flags to host open flags. */
 static int MINIXCompat_File_HostOpenFlagsForMINIXOpenFlags(minix_open_flags_t minix_flags)
@@ -285,6 +375,47 @@ static mode_t MINIXCompat_File_HostOpenModeForMINIXOpenMode(minix_mode_t minix_m
     return host_mode;
 }
 
+static minix_ino_t MINIXCompat_File_MINIXInodeForHostInode(ino_t host_inode)
+{
+    // If this inode doesn't exist, pass that through unmodified.
+    if (host_inode == 0) return 0;
+
+    // Just let truncation happen and hope that it works.
+    minix_ino_t minix_inode = host_inode;
+
+    // If truncation results in a 0 minix_ino_t, make something up in a way that's both deterministic and unlikely to collide.
+    if (minix_inode == 0) {
+        // n.b. the below should only bother generating one of the branches
+        if (sizeof(ino_t) == sizeof(uint32_t)) {
+            // Add the two 16-bit words.
+            uint32_t temp = (  ((host_inode & 0xffff0000) >> 16)
+                             + ((host_inode & 0x0000ffff) >> 0));
+            minix_inode = (temp & 0x0000ffff);
+        } else if (sizeof(ino_t) == sizeof(uint64_t)) {
+            // Add the four 16-bit words.
+            uint64_t temp = (  ((host_inode & 0xffff000000000000) >> 48)
+                             + ((host_inode & 0x0000ffff00000000) >> 32)
+                             + ((host_inode & 0x00000000ffff0000) >> 16)
+                             + ((host_inode & 0x000000000000ffff) >> 0));
+            minix_inode = (temp & 0x000000000000ffff);
+        } else {
+            // We don't support non-16/32/64-bit inodes yet.
+            assert(minix_inode != 0);
+        }
+    }
+
+    return minix_inode;
+}
+
+static int MINIXCompat_File_HostWhenceForMINIXWhence(minix_whence_t minix_whence)
+{
+    switch (minix_whence) {
+        case minix_SEEK_SET: return SEEK_SET;
+        case minix_SEEK_CUR: return SEEK_CUR;
+        case minix_SEEK_END: return SEEK_END;
+    }
+}
+
 minix_fd_t MINIXCompat_File_Create(const char *minix_path, minix_mode_t minix_mode)
 {
     return MINIXCompat_File_Open(minix_path, minix_O_CREAT | minix_O_TRUNC | minix_O_WRONLY, minix_mode);
@@ -302,11 +433,23 @@ minix_fd_t MINIXCompat_File_Open(const char *minix_path, int16_t minix_flags, mi
     if (minix_fd >= 0) {
         char *host_path = MINIXCompat_Filesystem_CopyHostPathForPath(minix_path);
 
+        // Open the file.
+
         int host_fd = open(host_path, host_flags, host_mode);
         if (host_fd >= 0) {
+            // Save the association.
+
             MINIXCompat_fd_SetHostDescriptor(minix_fd, host_fd);
-        } else {
-            minix_fd = -MINIXCompat_Errors_MINIXErrorForHostError(errno);
+
+            // Check and record whether the newly-opened file is a directory, and do any necessary bookkeeping if so.
+            // That will only fail if the open itself should fail.
+
+            int16_t diropen_result = MINIXCompat_Dir_CheckIfDirAndCache(host_path, minix_fd);
+            if (diropen_result < 0) {
+                minix_fd = diropen_result;
+                (void) close(host_fd);
+                MINIXCompat_fd_ClearDescriptorEntry(minix_fd);
+            }
         }
 
         free(host_path);
@@ -324,16 +467,18 @@ int16_t MINIXCompat_File_Close(minix_fd_t minix_fd)
     int16_t result;
 
     assert(MINIXCompat_fd_IsInRange(minix_fd));
+    assert(MINIXCompat_fd_IsOpen(minix_fd));
 
     int host_fd = MINIXCompat_fd_GetHostDescriptor(minix_fd);
-    assert(host_fd != -1);
 
     int close_result = close(host_fd);
     if (close_result == -1) {
         result = -MINIXCompat_Errors_MINIXErrorForHostError(errno);
+    } else {
+        result = close_result;
     }
 
-    MINIXCompat_fd_ClearHostDescriptor(minix_fd);
+    MINIXCompat_fd_ClearDescriptorEntry(minix_fd);
 
     return result;
 }
@@ -347,16 +492,22 @@ int16_t MINIXCompat_File_Read(minix_fd_t minix_fd, void *host_buf, int16_t host_
     assert(host_buf != NULL);
     assert(host_buf_size > 0);
 
-    int host_fd = MINIXCompat_fd_GetHostDescriptor(minix_fd);
-    if (host_fd >= 0) {
-        ssize_t bytesread = read(host_fd, host_buf, host_buf_size);
-        if (bytesread < 0) {
-            result = -MINIXCompat_Errors_MINIXErrorForHostError(errno);
-        } else {
-            result = bytesread;
-        }
+    if (MINIXCompat_fd_IsDirectory(minix_fd)) {
+        // Handle directories specially, since readdir et al are userspace on MINIX.
+
+        result = MINIXCompat_Dir_Read(minix_fd, host_buf, host_buf_size);
     } else {
-        result = -MINIXCompat_Errors_MINIXErrorForHostError(ENFILE);
+        int host_fd = MINIXCompat_fd_GetHostDescriptor(minix_fd);
+        if (host_fd >= 0) {
+            ssize_t bytesread = read(host_fd, host_buf, host_buf_size);
+            if (bytesread < 0) {
+                result = -MINIXCompat_Errors_MINIXErrorForHostError(errno);
+            } else {
+                result = bytesread;
+            }
+        } else {
+            result = -MINIXCompat_Errors_MINIXErrorForHostError(ENFILE);
+        }
     }
 
     return result;
@@ -368,8 +519,9 @@ int16_t MINIXCompat_File_Write(minix_fd_t minix_fd, void *host_buf, int16_t host
 
     assert(MINIXCompat_fd_IsInRange(minix_fd));
     assert(MINIXCompat_fd_IsOpen(minix_fd));
+    assert(!MINIXCompat_fd_IsDirectory(minix_fd));
     assert(host_buf != NULL);
-    assert(host_buf_size > 0);
+    assert(host_buf_size >= 0);
 
     int host_fd = MINIXCompat_fd_GetHostDescriptor(minix_fd);
     if (host_fd >= 0) {
@@ -393,15 +545,21 @@ int16_t MINIXCompat_File_Seek(minix_fd_t minix_fd, minix_off_t minix_offset, int
     assert(MINIXCompat_fd_IsInRange(minix_fd));
     assert(MINIXCompat_fd_IsOpen(minix_fd));
 
-    int host_fd = MINIXCompat_fd_GetHostDescriptor(minix_fd);
-    off_t host_offset = minix_offset;
-    int host_whence = minix_whence; //xxx translate
+    if (MINIXCompat_fd_IsDirectory(minix_fd)) {
+        // Handle directories specially, since readdir et al are userspace on MINIX.
 
-    off_t seek_result = lseek(host_fd, host_offset, host_whence);
-    if (seek_result < 0) {
-        result = -MINIXCompat_Errors_MINIXErrorForHostError(errno);
+        return MINIXCompat_Dir_Seek(minix_fd, minix_offset, minix_whence);
     } else {
-        result = seek_result;
+        int host_fd = MINIXCompat_fd_GetHostDescriptor(minix_fd);
+        off_t host_offset = minix_offset;
+        int host_whence = MINIXCompat_File_HostWhenceForMINIXWhence(minix_whence);
+
+        off_t seek_result = lseek(host_fd, host_offset, host_whence);
+        if (seek_result < 0) {
+            result = -MINIXCompat_Errors_MINIXErrorForHostError(errno);
+        } else {
+            result = seek_result;
+        }
     }
 
     return result;
@@ -426,11 +584,12 @@ static minix_mode_t MINIXCompat_File_MINIXStatModeForHostStatMode(mode_t host_mo
 {
     minix_mode_t minix_mode = 0;
 
-    if (host_mode & S_IFREG) minix_mode |= minix_S_IFREG;
-    if (host_mode & S_IFBLK) minix_mode |= minix_S_IFBLK;
-    if (host_mode & S_IFDIR) minix_mode |= minix_S_IFDIR;
-    if (host_mode & S_IFCHR) minix_mode |= minix_S_IFCHR;
-    if (host_mode & S_IFIFO) minix_mode |= minix_S_IFIFO;
+    if ((host_mode & S_IFREG) == S_IFREG) minix_mode |= minix_S_IFREG;
+    if ((host_mode & S_IFREG) == S_IFBLK) minix_mode |= minix_S_IFBLK;
+    if ((host_mode & S_IFDIR) == S_IFDIR) minix_mode |= minix_S_IFDIR;
+    if ((host_mode & S_IFCHR) == S_IFCHR) minix_mode |= minix_S_IFCHR;
+    if ((host_mode & S_IFIFO) == S_IFIFO) minix_mode |= minix_S_IFIFO;
+
     if (host_mode & S_ISUID) minix_mode |= minix_S_ISUID;
     if (host_mode & S_ISGID) minix_mode |= minix_S_ISGID;
 
@@ -465,7 +624,7 @@ static minix_off_t MINIXCompat_File_MINIXStatSizeForHostStatSize(off_t host_size
 static void MINIXCompat_File_MINIXStatBufForHostStatBuf(minix_stat_t * _Nonnull minix_stat_buf, struct stat * _Nonnull host_stat_buf)
 {
     minix_stat_buf->st_dev = host_stat_buf->st_dev; //xxx translate?
-    minix_stat_buf->st_ino = host_stat_buf->st_ino; //xxx translate?
+    minix_stat_buf->st_ino = MINIXCompat_File_MINIXInodeForHostInode(host_stat_buf->st_ino);
     minix_stat_buf->st_mode = MINIXCompat_File_MINIXStatModeForHostStatMode(host_stat_buf->st_mode);
     minix_stat_buf->st_nlink = host_stat_buf->st_nlink;
     minix_stat_buf->st_uid = host_stat_buf->st_uid; //xxx translate?
@@ -563,6 +722,201 @@ minix_fd_t MINIXCompat_File_Access(const char *minix_path, minix_mode_t minix_mo
     }
 
     free(host_path);
+
+    return result;
+}
+
+
+// MARK: - Directories
+
+static void MINIXCompat_Dir_CopyName(char *to, const char *from, uint16_t fromlen)
+{
+    assert(to != NULL);
+    assert(from != NULL);
+    assert(fromlen <= 14);
+
+    if (fromlen == 14) { // up to 14 characters without trailing NUL
+        strncpy(to, from, 13);
+        to[13] = from[13]; // no trailing NUL
+    } else {
+        strncpy(to, from, fromlen);
+    }
+}
+
+/*! Pre-cache a directory for reading. */
+static int16_t MINIXCompat_Dir_Precache(const char * _Nullable host_path, minix_fd_t minix_fd)
+{
+    // Open the directory for iteration.
+
+    DIR *dir = opendir(host_path);
+    if (dir == NULL) {
+        return -MINIXCompat_Errors_MINIXErrorForHostError(errno);
+    }
+
+    // Create a minix_dirent_t for every corresponding struct dirent, resizing our table as needed.
+
+    bool done_reading = false;
+    size_t entry_count = 0;
+    size_t dircache_count = 32; // start at 32 since most directories have fewer entries, and 32 are one MINIX block
+
+    minix_dirent_t *dircache = calloc(dircache_count, sizeof(minix_dirent_t));
+
+    do {
+        errno = 0;  // errno will be unchanged for end-of-directory
+        struct dirent *entry = readdir(dir);
+        if (entry == NULL) {
+            int host_errno = errno;
+            if (host_errno != 0) { // errno is unchanged for end-of-directory
+                return -MINIXCompat_Errors_MINIXErrorForHostError(host_errno);
+            } else {
+                // Read has finished successfully. Close the directory.
+                closedir(dir);
+                dir = NULL;
+            }
+            done_reading = true;
+        } else {
+            // Expand the cache if needed.
+
+            if (entry_count >= dircache_count) {
+                // Always increase size by one block's worth so it doesn't grow too quickly.
+                size_t new_dircache_count = (dircache_count + 32);
+                dircache = realloc(dircache, new_dircache_count * sizeof(minix_dirent_t));
+
+                // Zero-fill new entries.
+                memset(&dircache[dircache_count], 0, 32);
+
+                // Update number of available entries.
+                dircache_count = new_dircache_count;
+            }
+
+            // MINIX just wants inode and 14-character name.
+            // Note that a full 14-character name isn't zero-terminated, so use a special copy function.
+            // Also note that d_ino needs swapping in order to be passed back to MINIX, do that here since nothing host-side uses it.
+
+            dircache[entry_count].d_ino = htons(MINIXCompat_File_MINIXInodeForHostInode(entry->d_ino));
+            MINIXCompat_Dir_CopyName(dircache[entry_count].d_name, entry->d_name, entry->d_namlen);
+
+            entry_count += 1;
+        }
+    } while (!done_reading);
+
+    // Save the MINIX directory entries in the descriptor map.
+
+    MINIXCompat_fd_table[minix_fd].dir_entries = dircache;
+    MINIXCompat_fd_table[minix_fd].dir_count = dircache_count;
+    MINIXCompat_fd_table[minix_fd].dir_offset = 0;
+
+    return 0;
+}
+
+/*! A version of `stat(2)` that handles `EINTR` and returns `-errno` instead of just `-1` on error. */
+static int stat_without_EINTR(const char * _Nonnull path, struct stat * _Nonnull sbuf)
+{
+    int result;
+    bool stat_done = false;
+
+    do {
+        result = stat(path, sbuf);
+        if (result == -1) {
+            if (errno != EINTR) {
+                result = -EINTR;
+                stat_done = true;
+            } else {
+                // Just loop until success or a real failure. Thanks, UNIX.
+            }
+        } else {
+            stat_done = true;
+        }
+    } while (!stat_done);
+
+    return result;
+}
+
+static int16_t MINIXCompat_Dir_CheckIfDirAndCache(const char * _Nonnull host_path, minix_fd_t minix_fd)
+{
+    int16_t result;
+
+    bool is_directory;
+    struct stat sbuf;
+    int stat_result = stat_without_EINTR(host_path, &sbuf);
+    if (stat_result == 0) {
+        // Indicate whether the fd corresponds to a directory.
+        is_directory = S_ISDIR(sbuf.st_mode);
+        MINIXCompat_fd_table[minix_fd].f_type = is_directory ? f_directory : f_file;
+        result = 0;
+    } else {
+        is_directory = false;
+        result = MINIXCompat_Errors_MINIXErrorForHostError(-stat_result);
+    }
+
+    // If that was successful, and the file is a directory, also pre-cache its entries at open(2) time.
+    // NOTE: Since we're in the middle of opening, don't use IsOpen, IsDirectory, etc.
+
+    if ((result == 0) && is_directory) {
+        // If the fd is a directory, pre-cache its entries, failing the open if that fails.
+        int16_t precache_result = MINIXCompat_Dir_Precache(host_path, minix_fd);
+        result = precache_result;
+    }
+
+    return result;
+}
+
+/*! Read and return many entries from the directory into \a host_buf as are appropriate for \a host_buf_size. */
+static int16_t MINIXCompat_Dir_Read(minix_fd_t minix_fd, void *host_buf, int16_t host_buf_size)
+{
+    int16_t result;
+    minix_fdmap_t *entry = &MINIXCompat_fd_table[minix_fd];
+
+    const minix_off_t max_off_plus_one = entry->dir_count * sizeof(minix_dirent_t);
+    const minix_off_t cur_off = entry->dir_offset;
+
+    if ((cur_off + host_buf_size) <= max_off_plus_one) {
+        uint8_t *raw_dir_entries = (uint8_t *)entry->dir_entries;
+        memcpy(host_buf, raw_dir_entries + cur_off, host_buf_size);
+        entry->dir_offset += host_buf_size;
+        result = host_buf_size;
+    } else {
+        result = MINIXCompat_Errors_MINIXErrorForHostError(EIO);
+    }
+
+    return result;
+}
+
+/*! Seek within a directory. */
+static int16_t MINIXCompat_Dir_Seek(minix_fd_t minix_fd, minix_off_t minix_offset, minix_whence_t minix_whence)
+{
+    int16_t result;
+
+    assert(MINIXCompat_fd_IsInRange(minix_fd));
+    assert(MINIXCompat_fd_IsOpen(minix_fd));
+    assert(MINIXCompat_fd_IsDirectory(minix_fd));
+
+    minix_fdmap_t *entry = &MINIXCompat_fd_table[minix_fd];
+
+    const minix_off_t min_off = 0;
+    const minix_off_t max_off = entry->dir_count * sizeof(minix_dirent_t) - 1;
+    minix_off_t new_off;
+
+    switch (minix_whence) {
+        case minix_SEEK_SET: {
+            new_off = min_off + minix_offset;
+        } break;
+
+        case minix_SEEK_CUR: {
+            new_off = entry->dir_offset + minix_offset;
+        } break;
+
+        case minix_SEEK_END: {
+            new_off = max_off + minix_offset;
+        } break;
+    }
+
+    if ((new_off < 0) || (new_off > max_off)) {
+        result = -minix_EINVAL;
+    } else {
+        entry->dir_offset = new_off;
+        result = 0;
+    }
 
     return result;
 }
