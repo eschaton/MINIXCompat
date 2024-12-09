@@ -24,6 +24,23 @@ MINIXCOMPAT_EXTERN void MINIXCompat_CPU_Reset(void);
 /*! Run the CPU emulation. */
 MINIXCOMPAT_EXTERN int MINIXCompat_CPU_Run(int cycles);
 
+
+/*! Get the current program counter. */
+MINIXCOMPAT_EXTERN m68k_address_t MINIXCompat_CPU_GetPC(void);
+
+/*! Set the current program counter. */
+MINIXCOMPAT_EXTERN void MINIXCompat_CPU_SetPC(m68k_address_t value);
+
+/*! Get the status register. */
+MINIXCOMPAT_EXTERN uint16_t MINIXCompat_CPU_GetSR(void);
+
+/*! Push a 16-bit word on the stack, and return the address to which it was pushed.. */
+MINIXCOMPAT_EXTERN m68k_address_t MINIXCompat_CPU_Push_16(uint16_t value);
+
+/*! Push a 32-bit word on the stack, and return the address to which it was pushed. */
+MINIXCOMPAT_EXTERN m68k_address_t MINIXCompat_CPU_Push_32(uint32_t value);
+
+
 /*! Read the 8-bit byte at \a m68k_address from RAM. */
 MINIXCOMPAT_EXTERN uint8_t MINIXCompat_RAM_Read_8(m68k_address_t m68k_address);
 
