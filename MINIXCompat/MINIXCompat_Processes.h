@@ -92,6 +92,12 @@ MINIXCOMPAT_EXTERN int16_t MINIXCompat_Processes_kill(minix_pid_t minix_pid, min
 
 
 /*!
+ Handle any pending signals.
+ */
+MINIXCOMPAT_EXTERN void MINIXCompat_Processes_HandlePendingSignals(void);
+
+
+/*!
  Load and run a compiled MINIX executable or interpreter file the same way `exec(2)` would.
 
  - Parameters:
