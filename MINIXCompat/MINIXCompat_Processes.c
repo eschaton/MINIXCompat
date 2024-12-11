@@ -375,7 +375,50 @@ static void MINIXCompat_Processes_SignalHandler_Other(int host_signal)
 
 static void MINIXCompat_Processes_HandlePendingSignal(minix_signal_t minix_signal)
 {
-    // TODO: Figure out how to deliver a signal to the emulated MINIX code.
+    minix_sighandler_t handler = minix_signal_handlers[minix_signal - 1];
+
+    if (handler == minix_SIG_IGN) {
+        return;
+    } else if (handler == minix_SIG_DFL) {
+        // Handle default behavior for the signal.
+#if DEBUG_SIGNAL
+        fprintf(stderr, "%d: default signal handler for %d" "\n", getpid(), minix_signal);
+#endif
+        // TODO: Default handler behavior for minix_signal.
+        return;
+    } else if (handler == minix_SIG_ERR) {
+        // Representation of an error, should never be called but just in case it is...
+#if DEBUG_SIGNAL
+        fprintf(stderr, "%d: error signal handler for %d" "\n", getpid(), minix_signal);
+#endif
+        // Do nothing.
+        return;
+    } else {
+        // A real 68K handler was specified, set it up to be called.
+
+        /*
+         Here's our theory of operation, as suggested by Warren Toomey.
+
+         When we have a 68K signal handler to execute, do the following:
+
+         1. Push the current PC.
+         2. Push an `RTS` instruction.
+         3. Push an `ADDQ.L #6,SP` instruction, call its location @L1.
+         4. Push the signal number.
+         5. Push @L1.
+         6. Set the current PC to the signal handler address.
+
+         Thus when we next run the emulator, it will run the signal handler, then its `RTS` will *return to* L1, which wil clean up the stack, and return to whatever was going to run next if the handler hadn't been run.
+         */
+
+        m68k_address_t pc = MINIXCompat_CPU_GetPC();
+        MINIXCompat_CPU_Push_32(pc);
+        MINIXCompat_CPU_Push_16(0x4E75); // RTS
+        m68k_address_t l1 = MINIXCompat_CPU_Push_16(0x5C8F); // ADDQ.L #6,SP
+        MINIXCompat_CPU_Push_16(minix_signal);
+        MINIXCompat_CPU_Push_32(l1);
+        MINIXCompat_CPU_SetPC(handler);
+    }
 }
 
 void MINIXCompat_Processes_HandlePendingSignals(void)
