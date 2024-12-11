@@ -455,11 +455,12 @@ minix_fd_t MINIXCompat_File_Open(const char *minix_path, int16_t minix_flags, mi
                 (void) close(host_fd);
                 MINIXCompat_fd_ClearDescriptorEntry(minix_fd);
             }
+            result = minix_fd;
+        } else {
+            result = -MINIXCompat_Errors_MINIXErrorForHostError(errno);
         }
 
         free(host_path);
-
-        result = minix_fd;
     } else {
         result = -MINIXCompat_Errors_MINIXErrorForHostError(ENFILE);
     }
