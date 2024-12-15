@@ -35,7 +35,7 @@ MINIXCOMPAT_SOURCE_BEGIN
 static uint8_t *MINIXCompat_RAM;
 
 
-int MINIXCompat_CPU_Trap_Callback(int trap);
+static int MINIXCompat_CPU_Trap_Callback(int trap);
 
 
 int MINIXCompat_CPU_Initialize(void)
@@ -80,7 +80,41 @@ int MINIXCompat_CPU_Run(int cycles)
 }
 
 
-int MINIXCompat_CPU_Trap_Callback(int trap)
+m68k_address_t MINIXCompat_CPU_GetPC(void)
+{
+    return m68k_get_reg(NULL, M68K_REG_PC);
+}
+
+void MINIXCompat_CPU_SetPC(m68k_address_t value)
+{
+    m68k_set_reg(M68K_REG_PC, value);
+}
+
+uint16_t MINIXCompat_CPU_GetSR(void)
+{
+    return m68k_get_reg(NULL, M68K_REG_SR);
+}
+
+m68k_address_t MINIXCompat_CPU_Push_16(uint16_t value)
+{
+    m68k_address_t sp = m68k_get_reg(NULL, M68K_REG_SP);
+    sp -= 2;
+    m68k_set_reg(M68K_REG_SP, sp);
+    MINIXCompat_RAM_Write_16(sp, value);
+    return sp;
+}
+
+m68k_address_t MINIXCompat_CPU_Push_32(uint32_t value)
+{
+    m68k_address_t sp = m68k_get_reg(NULL, M68K_REG_SP);
+    sp -= 4;
+    m68k_set_reg(M68K_REG_SP, sp);
+    MINIXCompat_RAM_Write_32(sp, value);
+    return sp;
+}
+
+
+static int MINIXCompat_CPU_Trap_Callback(int trap)
 {
     assert((trap >= 0x0) && (trap <= 0xf));
     bool handled = false;

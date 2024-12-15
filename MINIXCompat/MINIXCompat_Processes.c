@@ -39,6 +39,11 @@
  */
 //#define DEBUG_FORK 1
 
+/*
+ Uncomment to debug signal handling.
+ */
+#define DEBUG_SIGNAL 1
+
 #endif
 
 
@@ -78,8 +83,7 @@ static minix_pid_t minix_next_pid = 0;
 
 
 /*! The signal handler table. */
-static minix_sighandler_t minix_signal_handlers[16] = { 0x00000000 /* SIG_DFL */ };
-
+static minix_sighandler_t minix_signal_handlers[17] = { 0x00000000 /* minix_SIG_DFL */ };
 
 minix_sighandler_t minix_SIG_DFL = 0x00000000;
 minix_sighandler_t minix_SIG_IGN = 0x00000001;
@@ -321,20 +325,114 @@ static int MINIXCompat_Processes_HostSignalForMINIXSignal(minix_signal_t minix_s
     }
 }
 
-static int minix_current_signal = 0;
-
-static void MINIXCompat_Processes_SignalHandler_DFL(int sig)
+/*! Return the MINIX signal that correponds to the given host signal; if there isn't one, returns `0`. */
+static minix_signal_t MINIXCompat_Processes_MINIXSignalForHostSignal(int host_signal)
 {
-    // TODO: Implement handling for MINIX signals.
-    // This should just set a flag that a signal needs to be handled MINIX-side, and then handle that signal when the emulation loop returns.
-    minix_current_signal = sig;
+    switch (host_signal) {
+        case SIGHUP: return minix_SIGHUP;
+        case SIGINT: return minix_SIGINT;
+        case SIGQUIT: return minix_SIGQUIT;
+        case SIGILL: return minix_SIGILL;
+        case SIGTRAP: return minix_SIGTRAP;
+        case SIGABRT: return minix_SIGABRT;
+        case SIGXFSZ: return minix_SIGUNUSED; // Should never be used, but available just in case.
+        case SIGFPE: return minix_SIGFPE;
+        case SIGKILL: return minix_SIGKILL;
+        case SIGUSR1: return minix_SIGUSR1;
+        case SIGSEGV: return minix_SIGSEGV;
+        case SIGUSR2: return minix_SIGUSR2;
+        case SIGPIPE: return minix_SIGPIPE;
+        case SIGALRM: return minix_SIGALRM;
+        case SIGTERM: return minix_SIGTERM;
+        case SIGXCPU: return minix_SIGSTKFLT; // Doesn't really exist for us so just use a signal we're unlikely to get.
+        default: return 0; // indicate that MINIX doesn't support this signal
+    }
 }
 
-static void MINIXCompat_Processes_SignalHandler_Other(int sig)
+static bool MINIXCompat_Processes_HasPendingSignal = false;
+static bool MINIXCompat_Processes_PendingSignals[17] = { false };
+
+/*! Indicate that a signal was received and needs to be processed. */
+static void MINIXCompat_Processes_RegisterPendingSignal(int host_signal)
 {
-    // TODO: Implement handling for MINIX signals.
-    // This should just set a flag that a signal needs to be handled MINIX-side, and then handle that signal when the emulation loop returns.
-    minix_current_signal = sig;
+    minix_signal_t minix_signal = MINIXCompat_Processes_MINIXSignalForHostSignal(host_signal);
+    if (minix_signal != 0) {
+        MINIXCompat_Processes_HasPendingSignal = true;
+        MINIXCompat_Processes_PendingSignals[minix_signal] = true;
+    }
+}
+
+static void MINIXCompat_Processes_SignalHandler_DFL(int host_signal)
+{
+    MINIXCompat_Processes_RegisterPendingSignal(host_signal);
+}
+
+static void MINIXCompat_Processes_SignalHandler_Other(int host_signal)
+{
+    MINIXCompat_Processes_RegisterPendingSignal(host_signal);
+}
+
+static void MINIXCompat_Processes_HandlePendingSignal(minix_signal_t minix_signal)
+{
+    minix_sighandler_t handler = minix_signal_handlers[minix_signal];
+
+    if (handler == minix_SIG_IGN) {
+        return;
+    } else if (handler == minix_SIG_DFL) {
+        // Handle default behavior for the signal.
+#if DEBUG_SIGNAL
+        fprintf(stderr, "%d: default signal handler for %d" "\n", getpid(), minix_signal);
+#endif
+        // TODO: Default handler behavior for minix_signal.
+        return;
+    } else if (handler == minix_SIG_ERR) {
+        // Representation of an error, should never be called but just in case it is...
+#if DEBUG_SIGNAL
+        fprintf(stderr, "%d: error signal handler for %d" "\n", getpid(), minix_signal);
+#endif
+        // Do nothing.
+        return;
+    } else {
+        // A real 68K handler was specified, set it up to be called.
+
+        /*
+         Here's our theory of operation, based on a suggestion by Warren Toomey.
+
+         When we have a 68K signal handler to execute, we have to meet the expectations of the `_begsig` library function which always wraps the actual signal handler:
+
+         1. Push the current PC.
+         2. Push the current SR.
+         3. Push the signal number.
+         4. Set the current PC to the signal handler address (which will be `_begsig`).
+
+         Then when we next run the emulator, it will run the signal handler, which expects the first thing on the stack to be the signal number. When that's done, it adjusts the stack and does an `RTR` will restore the SR and PC to what it was before running the handler, thus resuming execution where it left off.
+
+         This doesn't support code that does a `longjmp(3)` out of a signal handler but it's not clear whether MINIX 1.5 supported such code either.
+         */
+
+        m68k_address_t pc = MINIXCompat_CPU_GetPC();
+        MINIXCompat_CPU_Push_32(pc);
+        uint16_t sr = MINIXCompat_CPU_GetSR();
+        MINIXCompat_CPU_Push_16(sr);
+        MINIXCompat_CPU_Push_16(minix_signal);
+        MINIXCompat_CPU_SetPC(handler);
+    }
+}
+
+void MINIXCompat_Processes_HandlePendingSignals(void)
+{
+    if (MINIXCompat_Processes_HasPendingSignal) {
+        MINIXCompat_Processes_HasPendingSignal = false;
+        for (minix_signal_t minix_signal = minix_SIGHUP;
+             minix_signal <= minix_SIGSTKFLT;
+             minix_signal++)
+        {
+            if (MINIXCompat_Processes_PendingSignals[minix_signal]) {
+                MINIXCompat_Processes_PendingSignals[minix_signal] = false;
+                MINIXCompat_Processes_HandlePendingSignal(minix_signal);
+            }
+        }
+    }
 }
 
 static void *MINIXCompat_Processes_HostSignalHandlerForMINIXSignalHandler(minix_sighandler_t minix_handler)
@@ -352,12 +450,12 @@ static void *MINIXCompat_Processes_HostSignalHandlerForMINIXSignalHandler(minix_
 
 minix_sighandler_t MINIXCompat_Processes_signal(minix_signal_t minix_signal, minix_sighandler_t minix_handler)
 {
-    assert((minix_signal > 0) && (minix_signal <= 16));
+    assert((minix_signal >= minix_SIGHUP) && (minix_signal <= minix_SIGSTKFLT));
 
     // Update the MINIX signal table.
 
-    minix_sighandler_t old_minix_handler = minix_signal_handlers[minix_signal - 1];
-    minix_signal_handlers[minix_signal - 1] = minix_handler;
+    minix_sighandler_t old_minix_handler = minix_signal_handlers[minix_signal];
+    minix_signal_handlers[minix_signal] = minix_handler;
 
     // Register a host-side handler for the given signal.
 
@@ -384,7 +482,7 @@ int16_t MINIXCompat_Processes_kill(minix_pid_t minix_pid, minix_signal_t minix_s
     int16_t result;
 
     assert(minix_pid > 0);
-    assert((minix_signal > 0) && (minix_signal <= 16));
+    assert((minix_signal >= minix_SIGHUP) && (minix_signal <= minix_SIGSTKFLT));
 
     int host_signal = MINIXCompat_Processes_HostSignalForMINIXSignal(minix_signal);
     if (host_signal <= 0) {

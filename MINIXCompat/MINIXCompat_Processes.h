@@ -69,13 +69,13 @@ typedef enum minix_signal: int16_t {
 /*! The type of a MINIX signal handler. (Really a 68K-side pointer to a function that takes an `int16_t`. */
 typedef m68k_address_t minix_sighandler_t;
 
-/*! The default MINIX signal handler. */
+/*! The token that indicates the default MINIX signal handler. */
 MINIXCOMPAT_EXTERN minix_sighandler_t minix_SIG_DFL;
 
-/*! The ignoring MINIX signal handler. */
+/*! The token that indicates the ignoring MINIX signal handler. */
 MINIXCOMPAT_EXTERN minix_sighandler_t minix_SIG_IGN;
 
-/*! The error MINIX signal handler. */
+/*! The token that indicates the "error" MINIX signal handler, which is really a return code. */
 MINIXCOMPAT_EXTERN minix_sighandler_t minix_SIG_ERR;
 
 
@@ -89,6 +89,12 @@ MINIXCOMPAT_EXTERN minix_sighandler_t MINIXCompat_Processes_signal(minix_signal_
  Send a signal to a process.
  */
 MINIXCOMPAT_EXTERN int16_t MINIXCompat_Processes_kill(minix_pid_t minix_pid, minix_signal_t minix_signal);
+
+
+/*!
+ Handle any pending signals.
+ */
+MINIXCOMPAT_EXTERN void MINIXCompat_Processes_HandlePendingSignals(void);
 
 
 /*!
