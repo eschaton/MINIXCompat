@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 #include <arpa/inet.h> /* for ntohs et al */
 
@@ -74,7 +75,7 @@ minix_syscall_result_t MINIXCompat_SysCall_access(minix_syscall_func_t func, uin
 // minix_syscall_result_t MINIXCompat_SysCall_sync(minix_syscall_func_t func, uint16_t src_dest, m68k_address_t msg, minix_message_t *message, uint32_t * _Nonnull out_result);
 minix_syscall_result_t MINIXCompat_SysCall_kill(minix_syscall_func_t func, uint16_t src_dest, m68k_address_t msg, minix_message_t *message, uint32_t * _Nonnull out_result);
 // minix_syscall_result_t MINIXCompat_SysCall_rename(minix_syscall_func_t func, uint16_t src_dest, m68k_address_t msg, minix_message_t *message, uint32_t * _Nonnull out_result);
-// minix_syscall_result_t MINIXCompat_SysCall_mkdir(minix_syscall_func_t func, uint16_t src_dest, m68k_address_t msg, minix_message_t *message, uint32_t * _Nonnull out_result);
+minix_syscall_result_t MINIXCompat_SysCall_mkdir(minix_syscall_func_t func, uint16_t src_dest, m68k_address_t msg, minix_message_t *message, uint32_t * _Nonnull out_result);
 // minix_syscall_result_t MINIXCompat_SysCall_rmdir(minix_syscall_func_t func, uint16_t src_dest, m68k_address_t msg, minix_message_t *message, uint32_t * _Nonnull out_result);
 // minix_syscall_result_t MINIXCompat_SysCall_dup(minix_syscall_func_t func, uint16_t src_dest, m68k_address_t msg, minix_message_t *message, uint32_t * _Nonnull out_result);
 // minix_syscall_result_t MINIXCompat_SysCall_pipe(minix_syscall_func_t func, uint16_t src_dest, m68k_address_t msg, minix_message_t *message, uint32_t * _Nonnull out_result);
@@ -232,7 +233,7 @@ minix_syscall_impl _Nullable minix_syscall_table[70] = {
     NULL, // MINIXCompat_SysCall_sync
     MINIXCompat_SysCall_kill,
     NULL, // MINIXCompat_SysCall_rename
-    NULL, // MINIXCompat_SysCall_mkdir
+    MINIXCompat_SysCall_mkdir,
     NULL, // MINIXCompat_SysCall_rmdir
     NULL, // MINIXCompat_SysCall_dup
     NULL, // MINIXCompat_SysCall_pipe
@@ -556,6 +557,39 @@ minix_syscall_result_t MINIXCompat_SysCall_close(minix_syscall_func_t func, uint
 
     MINIXCompat_Message_Swap(mess1, message);
 
+    return minix_syscall_result_success_empty;
+}
+
+/*! MINIX `mkdir(2)` implementation. */
+minix_syscall_result_t MINIXCompat_SysCall_mkdir(minix_syscall_func_t func, uint16_t src_dest, m68k_address_t msg, minix_message_t *message, uint32_t * _Nonnull out_result)
+{
+    // mkdir(2) sends mess1
+    int16_t minix_mode;
+    int16_t minix_err;
+    m68k_address_t minix_name;
+    int16_t minix_name_len;
+
+    MINIXCompat_Message_Swap(mess1, message);
+    minix_name_len = message->m1_i1;
+    minix_name = message->m1_p1;
+    minix_mode = message->m1_i2;
+
+    // Copy the name (path) to host memory.
+    // The name will include any trailing '\0' character. (Use of the pointer from the message rather than the message's inline copy is intentional, since the latter can only handle up to 14 characters.)
+
+    char *minix_name_on_host = MINIXCompat_RAM_Copy_Block_To_Host(minix_name, minix_name_len);
+
+    // mkdir the directory at that path, relative to MINIXCOMPAT_DIR.
+    minix_err= MINIXCompat_File_Mkdir(minix_name_on_host, minix_mode);
+
+    // Return the result via mess1.m_type containing the error, if any.
+    MINIXCompat_Message_Clear(message);
+    message->m_type = minix_err;
+
+    MINIXCompat_Message_Swap(mess1, message);
+
+    // Clean up.
+    free(minix_name_on_host);
     return minix_syscall_result_success_empty;
 }
 
