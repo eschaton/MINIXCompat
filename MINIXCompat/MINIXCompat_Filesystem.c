@@ -489,6 +489,23 @@ int16_t MINIXCompat_File_Close(minix_fd_t minix_fd)
     return result;
 }
 
+int16_t MINIXCompat_File_Mkdir(const char *minix_path, minix_mode_t minix_mode)
+{
+    int16_t result;
+
+    assert(minix_path != NULL);
+    int host_mode = MINIXCompat_File_HostOpenModeForMINIXOpenMode(minix_mode);
+
+    int mkdir_result= mkdir(minix_path, host_mode);
+    if (mkdir_result == -1) {
+        result = -MINIXCompat_Errors_MINIXErrorForHostError(errno);
+    } else {
+        result = mkdir_result;
+    }
+
+    return result;
+}
+
 int16_t MINIXCompat_File_Read(minix_fd_t minix_fd, void *host_buf, int16_t host_buf_size)
 {
     int16_t result;
