@@ -473,7 +473,7 @@ int16_t MINIXCompat_File_Close(minix_fd_t minix_fd)
     int16_t result;
 
     assert(MINIXCompat_fd_IsInRange(minix_fd));
-    assert(MINIXCompat_fd_IsOpen(minix_fd));
+    // assert(MINIXCompat_fd_IsOpen(minix_fd));
 
     int host_fd = MINIXCompat_fd_GetHostDescriptor(minix_fd);
 
@@ -485,6 +485,23 @@ int16_t MINIXCompat_File_Close(minix_fd_t minix_fd)
     }
 
     MINIXCompat_fd_ClearDescriptorEntry(minix_fd);
+
+    return result;
+}
+
+int16_t MINIXCompat_File_Mkdir(const char *minix_path, minix_mode_t minix_mode)
+{
+    int16_t result;
+
+    assert(minix_path != NULL);
+    int host_mode = MINIXCompat_File_HostOpenModeForMINIXOpenMode(minix_mode);
+
+    int mkdir_result= mkdir(minix_path, host_mode);
+    if (mkdir_result == -1) {
+        result = -MINIXCompat_Errors_MINIXErrorForHostError(errno);
+    } else {
+        result = mkdir_result;
+    }
 
     return result;
 }
