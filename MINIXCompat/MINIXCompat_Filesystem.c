@@ -732,6 +732,26 @@ minix_fd_t MINIXCompat_File_Access(const char *minix_path, minix_mode_t minix_mo
     return result;
 }
 
+minix_fd_t MINIXCompat_File_Chdir(const char *minix_path)
+{
+    int16_t result;
+
+    assert(minix_path != NULL);
+
+    char *host_path = MINIXCompat_Filesystem_CopyHostPathForPath(minix_path);
+
+    int chdir_err = chdir(host_path);
+    if (chdir_err == -1) {
+        result = -MINIXCompat_Errors_MINIXErrorForHostError(errno);
+    } else {
+        result = 0;
+    }
+
+    free(host_path);
+
+    return result;
+}
+
 
 // MARK: - Directories
 
