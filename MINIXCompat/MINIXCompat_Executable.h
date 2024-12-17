@@ -34,6 +34,11 @@ MINIXCOMPAT_EXTERN const m68k_address_t MINIXCompat_Stack_Base;
 /*! Limit of the MINIX stack, *below* which it must not grow since that would collide with initialized and uniitalized data. */
 MINIXCOMPAT_EXTERN const m68k_address_t MINIXCompat_Stack_Limit;
 
+/*!
+ Get the process' initial break value
+ */
+MINIXCOMPAT_EXTERN m68k_address_t MINIXCompat_Executable_Get_Initial_Break(void);
+
 
 /*!
  Loads a MINIX executable.

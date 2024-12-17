@@ -65,6 +65,12 @@ static int MINIXExecutableLoadHeader(FILE *pef, struct MINIXCompat_Executable *p
 static void MINIXExecutableRelocateLongAtOffset(uint8_t *buf, uint32_t relocation_base, uint32_t relocation_offset);
 static int MINIXExecutableRelocate(FILE *pef, struct MINIXCompat_Executable *peh, uint8_t *buf);
 
+// The process' initial break value
+static m68k_address_t minix_initial_break = 0;
+
+m68k_address_t MINIXCompat_Executable_Get_Initial_Break(void) {
+  return minix_initial_break;
+}
 
 int MINIXCompat_Executable_Load(FILE *pef, struct MINIXCompat_Executable * _Nullable * _Nonnull out_peh, uint8_t * _Nullable * _Nonnull out_buf, uint32_t *out_buf_len)
 {
@@ -121,6 +127,10 @@ int MINIXCompat_Executable_Load(FILE *pef, struct MINIXCompat_Executable * _Null
 
     int relocate_err = MINIXExecutableRelocate(pef, peh, buf);
     if (relocate_err != 0) return -relocate_err;
+
+    // Set up the process' initial break
+    minix_initial_break= exec_h->a_text + exec_h->a_data + exec_h->a_bss;
+    printf("Setting intial break to 0x%x\n", minix_initial_break);
 
     return 0;
 }
