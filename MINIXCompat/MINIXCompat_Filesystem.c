@@ -434,8 +434,6 @@ minix_fd_t MINIXCompat_File_Open(const char *minix_path, int16_t minix_flags, mi
     int host_flags = MINIXCompat_File_HostOpenFlagsForMINIXOpenFlags(minix_flags);
     int host_mode = MINIXCompat_File_HostOpenModeForMINIXOpenMode(minix_mode);
 
-    printf("Trying to open %s\n", minix_path);
-
     minix_fd_t minix_fd = MINIXCompat_fd_FindNextAvailable();
     if (minix_fd >= 0) {
         char *host_path = MINIXCompat_Filesystem_CopyHostPathForPath(minix_path);
