@@ -149,6 +149,7 @@ MINIXCOMPAT_EXTERN int16_t MINIXCompat_File_StatOpen(minix_fd_t minix_fd, minix_
 
 MINIXCOMPAT_EXTERN int16_t MINIXCompat_File_Unlink(const char *minix_path);
 MINIXCOMPAT_EXTERN int16_t MINIXCompat_File_Link(const char *minix_path, const char *minix_path2);
+MINIXCOMPAT_EXTERN int16_t MINIXCompat_File_Rename(const char *minix_path, const char *minix_path2);
 
 MINIXCOMPAT_EXTERN minix_fd_t MINIXCompat_File_Access(const char *minix_path, minix_mode_t minix_mode);
 MINIXCOMPAT_EXTERN minix_fd_t MINIXCompat_File_Chdir(const char *minix_path);
