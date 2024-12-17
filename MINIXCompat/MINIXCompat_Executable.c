@@ -47,8 +47,9 @@ struct minix_exec {
 } __attribute__((packed));
 
 
-const uint32_t minix_exec_magic_combined = 0x04100301;
-const uint32_t minix_exec_magic_separate = 0x04200301;
+const uint32_t minix_exec_magic_combined  = 0x04100301;
+const uint32_t minix2_exec_magic_combined = 0x0b100301;
+const uint32_t minix_exec_magic_separate  = 0x04200301;
 const uint32_t minix_exec_flags = 0x00000020;
 const uint32_t minix_exec_no_entry = 0x00000000;
 
@@ -157,6 +158,7 @@ static int MINIXExecutableLoadHeader(FILE *pef, struct MINIXCompat_Executable *p
     // Validate the header.
 
     if (   (exec_h->a_magic != minix_exec_magic_combined)
+        && (exec_h->a_magic != minix2_exec_magic_combined)
         && (exec_h->a_magic != minix_exec_magic_separate)) {
         return -ENOEXEC;
     }
@@ -165,7 +167,8 @@ static int MINIXExecutableLoadHeader(FILE *pef, struct MINIXCompat_Executable *p
     if (exec_h->a_no_entry != minix_exec_no_entry) return -ENOEXEC;
     if (exec_h->a_total == 0) return -ENOEXEC;
 
-    if (exec_h->a_magic == minix_exec_magic_combined) {
+    if (   (exec_h->a_magic == minix_exec_magic_combined)
+	|| (exec_h->a_magic == minix2_exec_magic_combined)) {
         // Combined I&D is considered all data, so adjust.
         exec_h->a_data += exec_h->a_text;
         exec_h->a_text = 0;
