@@ -735,8 +735,10 @@ minix_syscall_result_t MINIXCompat_SysCall_brk(minix_syscall_func_t func, uint16
 
     static m68k_address_t minix_current_break = 0;
 
+    printf("BRK: requested address 0x%x, current 0x%x, initial 0x%x\n", minix_requested_addr, minix_current_break, MINIXCompat_Executable_Get_Initial_Break());
+
     if ((minix_requested_addr < MINIXCompat_Executable_Limit)
-        && (minix_requested_addr >= minix_current_break))
+        && (minix_requested_addr >= MINIXCompat_Executable_Get_Initial_Break()))
     {
         minix_resulting_addr = minix_requested_addr;
         minix_current_break = minix_resulting_addr;
