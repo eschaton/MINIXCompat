@@ -473,7 +473,6 @@ int16_t MINIXCompat_File_Close(minix_fd_t minix_fd)
     int16_t result;
 
     assert(MINIXCompat_fd_IsInRange(minix_fd));
-    assert(MINIXCompat_fd_IsOpen(minix_fd));
 
     int host_fd = MINIXCompat_fd_GetHostDescriptor(minix_fd);
 
