@@ -130,7 +130,6 @@ int MINIXCompat_Executable_Load(FILE *pef, struct MINIXCompat_Executable * _Null
 
     // Set up the process' initial break
     minix_initial_break= exec_h->a_text + exec_h->a_data + exec_h->a_bss;
-    printf("Setting intial break to 0x%x\n", minix_initial_break);
 
     return 0;
 }
