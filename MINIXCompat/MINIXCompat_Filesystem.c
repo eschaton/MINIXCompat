@@ -727,6 +727,29 @@ int16_t MINIXCompat_File_Unlink(const char *minix_path)
     return result;
 }
 
+int16_t MINIXCompat_File_Link(const char *minix_path, const char *minix_path2)
+{
+    int16_t result;
+
+    assert(minix_path != NULL);
+    assert(minix_path2 != NULL);
+
+    char *host_path = MINIXCompat_Filesystem_CopyHostPathForPath(minix_path);
+    char *host_path2 = MINIXCompat_Filesystem_CopyHostPathForPath(minix_path2);
+
+    int link_err = link(host_path, host_path2);
+    if (link_err == 0) {
+        result = 0;
+    } else {
+        result = -MINIXCompat_Errors_MINIXErrorForHostError(errno);
+    }
+
+    free(host_path);
+    free(host_path2);
+
+    return result;
+}
+
 minix_fd_t MINIXCompat_File_Access(const char *minix_path, minix_mode_t minix_mode)
 {
     int16_t result;
