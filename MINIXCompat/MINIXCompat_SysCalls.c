@@ -51,7 +51,7 @@ minix_syscall_result_t MINIXCompat_SysCall_unlink(minix_syscall_func_t func, uin
 minix_syscall_result_t MINIXCompat_SysCall_chdir(minix_syscall_func_t func, uint16_t src_dest, m68k_address_t msg, minix_message_t *message, uint32_t * _Nonnull out_result);
 minix_syscall_result_t MINIXCompat_SysCall_time(minix_syscall_func_t func, uint16_t src_dest, m68k_address_t msg, minix_message_t *message, uint32_t * _Nonnull out_result);
 // minix_syscall_result_t MINIXCompat_SysCall_mknod(minix_syscall_func_t func, uint16_t src_dest, m68k_address_t msg, minix_message_t *message, uint32_t * _Nonnull out_result);
-// minix_syscall_result_t MINIXCompat_SysCall_chmod(minix_syscall_func_t func, uint16_t src_dest, m68k_address_t msg, minix_message_t *message, uint32_t * _Nonnull out_result);
+minix_syscall_result_t MINIXCompat_SysCall_chmod(minix_syscall_func_t func, uint16_t src_dest, m68k_address_t msg, minix_message_t *message, uint32_t * _Nonnull out_result);
 // minix_syscall_result_t MINIXCompat_SysCall_chown(minix_syscall_func_t func, uint16_t src_dest, m68k_address_t msg, minix_message_t *message, uint32_t * _Nonnull out_result);
 minix_syscall_result_t MINIXCompat_SysCall_brk(minix_syscall_func_t func, uint16_t src_dest, m68k_address_t msg, minix_message_t *message, uint32_t * _Nonnull out_result);
 minix_syscall_result_t MINIXCompat_SysCall_stat(minix_syscall_func_t func, uint16_t src_dest, m68k_address_t msg, minix_message_t *message, uint32_t * _Nonnull out_result);
@@ -209,7 +209,7 @@ minix_syscall_impl _Nullable minix_syscall_table[70] = {
     MINIXCompat_SysCall_chdir,
     MINIXCompat_SysCall_time,
     NULL, // MINIXCompat_SysCall_mknod
-    NULL, // MINIXCompat_SysCall_chmod
+    MINIXCompat_SysCall_chmod,
     NULL, // MINIXCompat_SysCall_chown
     MINIXCompat_SysCall_brk,
     MINIXCompat_SysCall_stat,
@@ -752,6 +752,48 @@ minix_syscall_result_t MINIXCompat_SysCall_time(minix_syscall_func_t func, uint1
     MINIXCompat_Message_Swap(mess2, message);
 
     *out_result = (uint32_t) t;
+
+    return minix_syscall_result_success;
+}
+
+/*! MINIX `chmod(2)` implementation. */
+minix_syscall_result_t MINIXCompat_SysCall_chmod(minix_syscall_func_t func, uint16_t src_dest, m68k_address_t msg, minix_message_t *message, uint32_t * _Nonnull out_result)
+{
+    // chmod(2) sends mess3
+    //
+    // - m3_i1: len(name)
+    // - m3_i2: mode
+    // - m3_p1: name
+
+    int16_t minix_mode;
+    m68k_address_t minix_name;
+    int16_t minix_name_len;
+
+    MINIXCompat_Message_Swap(mess3, message);
+    minix_name_len = message->m3_i1;
+    minix_name = message->m3_p1;
+    minix_mode = message->m3_i2;
+
+    // Copy the name (path) to host memory.
+    // The name will include any trailing '\0' character. (Use of the pointer from the message rather than the message's inline copy is intentional, since the latter can only handle up to 14 characters.)
+
+    char *minix_name_on_host = MINIXCompat_RAM_Copy_Block_To_Host(minix_name, minix_name_len);
+
+    int16_t chmod_err = MINIXCompat_File_Chmod(minix_name_on_host, minix_mode);
+
+    // chmod(2) responds with mess1
+    // - mess1.m_type: result
+
+    MINIXCompat_Message_Clear(message);
+    message->m_type = chmod_err;
+
+    MINIXCompat_Message_Swap(mess1, message);
+
+    *out_result = chmod_err;
+
+    // Clean up.
+
+    free(minix_name_on_host);
 
     return minix_syscall_result_success;
 }

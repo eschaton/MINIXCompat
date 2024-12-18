@@ -970,5 +970,24 @@ static int16_t MINIXCompat_Dir_Seek(minix_fd_t minix_fd, minix_off_t minix_offse
     return result;
 }
 
+/*! Change a file's permissions */
+int16_t MINIXCompat_File_Chmod(const char *minix_path, minix_mode_t minix_mode)
+{
+    int16_t result;
+
+    assert(minix_path != NULL);
+    int host_mode = MINIXCompat_File_HostOpenModeForMINIXOpenMode(minix_mode);
+    char *host_path = MINIXCompat_Filesystem_CopyHostPathForPath(minix_path);
+
+    int chmod_err = chmod(host_path, host_mode);
+    if (chmod_err == 0) {
+        result = 0;
+    } else {
+        result = -MINIXCompat_Errors_MINIXErrorForHostError(errno);
+    }
+
+    return result;
+}
+
 
 MINIXCOMPAT_SOURCE_END
