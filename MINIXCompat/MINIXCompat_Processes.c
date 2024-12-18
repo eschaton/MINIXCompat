@@ -571,7 +571,7 @@ static void MINIXCompat_Arguments_Initialize(uint32_t host_argc, char **host_arg
         for (char **iter_argv = host_argv; *iter_argv != NULL; iter_argv++) {
             char *argv_n = *iter_argv;
             size_t argv_n_len = (uint32_t)strlen(argv_n) + 1;
-            strncpy(&content[content_offset], argv_n, argv_n_len);
+            strncpy(&content[content_offset], argv_n, content_size - content_offset);
             m68k_address_t content_addr = MINIXCompat_Stack_Base + argc_ragv_envp_size + content_offset;
             argc_argv_envp[argc_argv_envp_idx++] = htonl(content_addr);
             content_offset += round_up_32(argv_n_len);
@@ -583,7 +583,7 @@ static void MINIXCompat_Arguments_Initialize(uint32_t host_argc, char **host_arg
             char *envp_n = *iter_envp;
             if (strncmp("MINIX_", envp_n, 6) == 0) {
                 size_t envp_n_len = (uint32_t)strlen(envp_n) + 1 - 6;
-                strncpy(&content[content_offset], &envp_n[6], envp_n_len);
+                strncpy(&content[content_offset], &envp_n[6], content_size - content_offset);
                 m68k_address_t content_addr = MINIXCompat_Stack_Base + argc_ragv_envp_size + content_offset;
                 argc_argv_envp[argc_argv_envp_idx++] = htonl(content_addr);
                 content_offset += round_up_32(envp_n_len);

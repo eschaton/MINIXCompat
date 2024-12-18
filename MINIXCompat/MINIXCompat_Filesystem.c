@@ -183,13 +183,13 @@ char *MINIXCompat_Filesystem_CopyHostPathForPath(const char *path)
     const size_t out_path_len = base_len + 1 /* trailing slash */ + path_len;
     char *out_path = calloc(out_path_len + 1 /* trailing NUL */, sizeof(char));
 
-    strncat(out_path, base, base_len);
+    strncat(out_path, base, out_path_len);
 
     if (!path_is_absolute) {
-        strncat(out_path, "/", 1);
+        strncat(out_path, "/", out_path_len);
     }
 
-    strncat(out_path, path, path_len);
+    strncat(out_path, path, out_path_len);
 
     return out_path;
 }
@@ -854,10 +854,10 @@ static int16_t MINIXCompat_Dir_Precache(const char * _Nullable host_path, minix_
             if (entry_count >= dircache_count) {
                 // Always increase size by one block's worth so it doesn't grow too quickly.
                 size_t new_dircache_count = (dircache_count + 32);
-                dircache = realloc(dircache, new_dircache_count * sizeof(minix_dirent_t));
-
-                // Zero-fill new entries.
-                memset(&dircache[dircache_count], 0, 32);
+                minix_dirent_t *new_dircache = calloc(new_dircache_count, sizeof(minix_dirent_t));
+                memcpy(new_dircache, dircache, dircache_count * sizeof(minix_dirent_t));
+                free(dircache);
+                dircache = new_dircache;
 
                 // Update number of available entries.
                 dircache_count = new_dircache_count;
