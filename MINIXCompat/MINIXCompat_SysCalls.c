@@ -72,7 +72,7 @@ minix_syscall_result_t MINIXCompat_SysCall_fstat(minix_syscall_func_t func, uint
 minix_syscall_result_t MINIXCompat_SysCall_access(minix_syscall_func_t func, uint16_t src_dest, m68k_address_t msg, minix_message_t *message, uint32_t * _Nonnull out_result);
 // minix_syscall_result_t MINIXCompat_SysCall_nice(minix_syscall_func_t func, uint16_t src_dest, m68k_address_t msg, minix_message_t *message, uint32_t * _Nonnull out_result);
 // minix_syscall_result_t MINIXCompat_SysCall_ftime(minix_syscall_func_t func, uint16_t src_dest, m68k_address_t msg, minix_message_t *message, uint32_t * _Nonnull out_result);
-// minix_syscall_result_t MINIXCompat_SysCall_sync(minix_syscall_func_t func, uint16_t src_dest, m68k_address_t msg, minix_message_t *message, uint32_t * _Nonnull out_result);
+minix_syscall_result_t MINIXCompat_SysCall_sync(minix_syscall_func_t func, uint16_t src_dest, m68k_address_t msg, minix_message_t *message, uint32_t * _Nonnull out_result);
 minix_syscall_result_t MINIXCompat_SysCall_kill(minix_syscall_func_t func, uint16_t src_dest, m68k_address_t msg, minix_message_t *message, uint32_t * _Nonnull out_result);
 // minix_syscall_result_t MINIXCompat_SysCall_rename(minix_syscall_func_t func, uint16_t src_dest, m68k_address_t msg, minix_message_t *message, uint32_t * _Nonnull out_result);
 minix_syscall_result_t MINIXCompat_SysCall_mkdir(minix_syscall_func_t func, uint16_t src_dest, m68k_address_t msg, minix_message_t *message, uint32_t * _Nonnull out_result);
@@ -230,7 +230,7 @@ minix_syscall_impl _Nullable minix_syscall_table[70] = {
     MINIXCompat_SysCall_access,
     NULL, // MINIXCompat_SysCall_nice
     NULL, // MINIXCompat_SysCall_ftime
-    NULL, // MINIXCompat_SysCall_sync
+    MINIXCompat_SysCall_sync,
     MINIXCompat_SysCall_kill,
     NULL, // MINIXCompat_SysCall_rename
     MINIXCompat_SysCall_mkdir,
@@ -983,6 +983,18 @@ minix_syscall_result_t MINIXCompat_SysCall_access(minix_syscall_func_t func, uin
 
     free(minix_name_on_host);
 
+    return minix_syscall_result_success_empty;
+}
+
+/*! MINIX `sync(2)` implementation. */
+minix_syscall_result_t MINIXCompat_SysCall_sync(minix_syscall_func_t func, uint16_t src_dest, m68k_address_t msg, minix_message_t *message, uint32_t * _Nonnull out_result)
+{
+    // There really isn't much to do, no need to call another function
+    sync();
+
+    MINIXCompat_Message_Clear(message);
+    message->m_type = 0;
+    MINIXCompat_Message_Swap(mess1, message);
     return minix_syscall_result_success_empty;
 }
 
