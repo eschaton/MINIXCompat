@@ -130,7 +130,7 @@ int MINIXCompat_Executable_Load(FILE *pef, struct MINIXCompat_Executable * _Null
     if (relocate_err != 0) return -relocate_err;
 
     // Set up the process' initial break
-    minix_initial_break= exec_h->a_text + exec_h->a_data + exec_h->a_bss;
+    minix_initial_break = exec_h->a_text + exec_h->a_data + exec_h->a_bss;
 
     return 0;
 }

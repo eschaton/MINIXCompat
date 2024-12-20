@@ -28,21 +28,23 @@
 #include "MINIXCompat_Errors.h"
 #include "MINIXCompat_Executable.h"
 #include "MINIXCompat_Filesystem.h"
+#include "MINIXCompat_Logging.h"
 
 
 #if DEBUG
 
-/*
+/*!
  Uncomment to debug forking.
 
  This will spin both the parent and child in loops immediately following the fork, allowing debugger attachment and resumption.
  */
 //#define DEBUG_FORK 1
 
-/*
- Uncomment to debug signal handling.
- */
-#define DEBUG_SIGNAL 1
+/*! Uncomment to debug signal handling. */
+//#define DEBUG_SIGNAL 1
+
+/*! Uncomment to trace process-related system calls. */
+//#define DEBUG_PROCESS_SYSCALLS 1
 
 #endif
 
@@ -150,7 +152,7 @@ static pid_t MINIXCompat_Processes_HostProcessForMINIXProcess(minix_pid_t minix_
     return -1;
 }
 
-/*! Get the next free entry number in the process table. **/
+/*! Get the next free entry number in the process table. */
 static size_t MINIXCompat_Processes_NextFreeTableEntry(void)
 {
     for (size_t i = 2; i < MINIXCompat_ProcessTable_Size; i++) {
@@ -183,6 +185,11 @@ void MINIXCompat_Processes_GetProcessIDs(minix_pid_t * _Nonnull minix_pid, minix
 
     *minix_pid = minix_self_pid;
     *minix_ppid = minix_self_ppid;
+
+#if DEBUG_PROCESS_SYSCALLS
+    MINIXCompat_Log("getpid() -> %d", minix_self_pid);
+    MINIXCompat_Log("getppid() -> %d", minix_self_ppid);
+#endif
 
     return;
 }
@@ -231,8 +238,10 @@ minix_pid_t MINIXCompat_Processes_fork(void)
             sleep(1);
         } while (!continue_child);
 #endif
+        // This is the child. Reinitialize logging (if it's a thing).
 
-        // This is the child put the old parent in the slot that the parent uses for this child, just in case. (That way there's no information lost in the fork(2) call.)
+        MINIXCompat_Log_Initialize();
+
 
         MINIXCompat_ProcessTable[new_process_entry].host_pid = MINIXCompat_ProcessTable[1].host_pid;
         MINIXCompat_ProcessTable[new_process_entry].minix_pid = MINIXCompat_ProcessTable[1].minix_pid;
@@ -249,6 +258,10 @@ minix_pid_t MINIXCompat_Processes_fork(void)
 
         result = 0;
     }
+
+#if DEBUG_PROCESS_SYSCALLS
+    MINIXCompat_Log("fork() -> %d", result);
+#endif
 
     return result;
 }
@@ -302,6 +315,59 @@ minix_pid_t MINIXCompat_Processes_wait(int16_t * _Nonnull minix_stat_loc)
 
     return minix_pid;
 }
+
+
+int MINIXCompat_Processes_ExitStatus = 0;
+
+
+void MINIXCompat_Processes_exit(int16_t status)
+{
+    MINIXCompat_Processes_ExitStatus = status;
+    MINIXCompat_Execution_ChangeState(MINIXCompat_Execution_State_Finished);
+
+#if DEBUG_PROCESS_SYSCALLS
+    MINIXCompat_Log("exit(%d)", status);
+#endif
+}
+
+
+// MARK: - Signal Handling
+
+#if DEBUG_PROCESS_SYSCALLS
+const char *MINIXCompat_Processes_NameForMINIXSignal(minix_signal_t minix_signal)
+{
+    switch (minix_signal) {
+        case minix_SIGHUP: return "SIGHUP";
+        case minix_SIGINT: return "SIGINT";
+        case minix_SIGQUIT: return "SIGQUIT";
+        case minix_SIGILL: return "SIGILL";
+        case minix_SIGTRAP: return "SIGTRAP";
+        case minix_SIGABRT: return "SIGABRT";
+        case minix_SIGUNUSED: return "SIGUNUSED";
+        case minix_SIGFPE: return "SIGFPE";
+        case minix_SIGKILL: return "SIGKILL";
+        case minix_SIGUSR1: return "SIGUSR1";
+        case minix_SIGSEGV: return "SIGSEGV";
+        case minix_SIGUSR2: return "SIGUSR2";
+        case minix_SIGPIPE: return "SIGPIPE";
+        case minix_SIGALRM: return "SIGALRM";
+        case minix_SIGTERM: return "SIGTERM";
+        case minix_SIGSTKFLT: return "SIGSTKFLT";
+    }
+}
+
+const char *MINIXCompat_Processes_NameForMINIXSignalHandler(minix_sighandler_t minix_handler)
+{
+    if      (minix_handler == minix_SIG_DFL) return "SIG_DFL";
+    else if (minix_handler == minix_SIG_IGN) return "SIG_IGN";
+    else if (minix_handler == minix_SIG_ERR) return "SIG_ERR";
+    else {
+        static char namebuf[64] = {0};
+        snprintf(namebuf, 64, "0x%08x", minix_handler);
+        return namebuf;
+    }
+}
+#endif
 
 static int MINIXCompat_Processes_HostSignalForMINIXSignal(minix_signal_t minix_signal)
 {
@@ -381,14 +447,14 @@ static void MINIXCompat_Processes_HandlePendingSignal(minix_signal_t minix_signa
     } else if (handler == minix_SIG_DFL) {
         // Handle default behavior for the signal.
 #if DEBUG_SIGNAL
-        fprintf(stderr, "%d: default signal handler for %d" "\n", getpid(), minix_signal);
+        MINIXCompat_Log("default signal handler for %d called", minix_signal);
 #endif
         // TODO: Default handler behavior for minix_signal.
         return;
     } else if (handler == minix_SIG_ERR) {
         // Representation of an error, should never be called but just in case it is...
 #if DEBUG_SIGNAL
-        fprintf(stderr, "%d: error signal handler for %d" "\n", getpid(), minix_signal);
+        MINIXCompat_Log("error signal handler for %d", minix_signal);
 #endif
         // Do nothing.
         return;
@@ -474,6 +540,16 @@ minix_sighandler_t MINIXCompat_Processes_signal(minix_signal_t minix_signal, min
         // Just preserve the old MINIX handler as retrieved from the table.
     }
 
+#if DEBUG_PROCESS_SYSCALLS
+    {
+        const char *signal_name = MINIXCompat_Processes_NameForMINIXSignal(minix_signal);
+        const char *new_handler_name = MINIXCompat_Processes_NameForMINIXSignalHandler(minix_handler);
+        const char *old_handler_name = MINIXCompat_Processes_NameForMINIXSignalHandler(old_minix_handler);
+
+        MINIXCompat_Log("signal(%s (%d), %s) -> %s", signal_name, minix_signal, new_handler_name, old_handler_name);
+    }
+#endif
+
     return old_minix_handler;
 }
 
@@ -486,12 +562,14 @@ int16_t MINIXCompat_Processes_kill(minix_pid_t minix_pid, minix_signal_t minix_s
 
     int host_signal = MINIXCompat_Processes_HostSignalForMINIXSignal(minix_signal);
     if (host_signal <= 0) {
-        return -minix_EINVAL;
+        result = -minix_EINVAL;
+        goto done;
     }
 
     pid_t host_pid = (minix_pid > 0) ? MINIXCompat_Processes_HostProcessForMINIXProcess(minix_pid) : minix_pid;
     if (host_pid <= 0) {
-        return -minix_ESRCH;
+        result = -minix_ESRCH;
+        goto done;
     }
 
     int kill_result = kill(host_pid, host_signal);
@@ -501,8 +579,19 @@ int16_t MINIXCompat_Processes_kill(minix_pid_t minix_pid, minix_signal_t minix_s
         result = kill_result;
     }
 
+done:
+#if DEBUG_PROCESS_SYSCALLS
+    {
+        const char *minix_signal_name = MINIXCompat_Processes_NameForMINIXSignal(minix_signal);
+        MINIXCompat_Log("kill(%d, %s (%d)) -> %d", minix_pid, minix_signal_name, minix_signal, -minix_EINVAL);
+    }
+#endif
+
     return result;
 }
+
+
+// MARK: - Exec
 
 static void MINIXCompat_Arguments_Initialize(uint32_t host_argc, char **host_argv, uint32_t host_envc, char **host_envp)
 {
@@ -607,6 +696,8 @@ static void MINIXCompat_Arguments_Initialize(uint32_t host_argc, char **host_arg
 
 static int16_t MINIXCompat_Processes_LoadTool(const char *executable_path)
 {
+    int16_t result;
+
     // TODO: Support interpreter scripts
     /*
      We could do this by parsing the first line for a #! prefix and using the interpreter there as the tool to run, with the given arguments.
@@ -616,18 +707,21 @@ static int16_t MINIXCompat_Processes_LoadTool(const char *executable_path)
 
     // Get the path to the tool to run and ensure it actually exists.
 
+    FILE *toolfile = NULL;
     char *executable_host_path = MINIXCompat_Filesystem_CopyHostPathForPath(executable_path);
     struct stat executable_host_stat;
     int stat_err = stat(executable_host_path, &executable_host_stat);
     if (stat_err == -1) {
-        return -MINIXCompat_Errors_MINIXErrorForHostError(errno);
+        result = -MINIXCompat_Errors_MINIXErrorForHostError(errno);
+        goto done;
     }
 
     // Load the tool into host memory, relocate it, and load the relocated tool into emulator memory.
 
-    FILE *toolfile = fopen(executable_host_path, "r");
+    toolfile = fopen(executable_host_path, "r");
     if (toolfile == NULL) {
-        return -MINIXCompat_Errors_MINIXErrorForHostError(EIO);
+        result = -MINIXCompat_Errors_MINIXErrorForHostError(EIO);
+        goto done;
     }
 
     struct MINIXCompat_Executable *executable = NULL;
@@ -636,16 +730,21 @@ static int16_t MINIXCompat_Processes_LoadTool(const char *executable_path)
 
     int load_err = MINIXCompat_Executable_Load(toolfile, &executable, &executable_text_and_data, &executable_text_and_data_len);
     if (load_err != 0) {
-        return load_err;
+        result = load_err;
+        goto done;
     }
 
     MINIXCompat_RAM_Copy_Block_From_Host(MINIXCompat_Executable_Base, executable_text_and_data, executable_text_and_data_len);
+    result = 0;
 
-    fclose(toolfile);
+done:
+    if (toolfile) {
+        fclose(toolfile);
+    }
 
     free(executable_host_path);
 
-    return 0;
+    return result;
 }
 
 int16_t MINIXCompat_Processes_ExecuteWithStackBlock(const char *executable_path, void *stack_on_host, int16_t stack_size)
@@ -680,9 +779,13 @@ int16_t MINIXCompat_Processes_ExecuteWithStackBlock(const char *executable_path,
 
     MINIXCompat_RAM_Copy_Block_From_Host(MINIXCompat_Stack_Base, stack_on_host, stack_size);
 
-    // Ready to go!
+    // Ready to go! The ready state reinitializes the emulator; any existing emulator-side state is blown away.
 
     MINIXCompat_Execution_ChangeState(MINIXCompat_Execution_State_Ready);
+
+#if DEBUG_PROCESS_SYSCALLS
+    MINIXCompat_Log("exec(\"%s\")", executable_path);
+#endif
 
     return 0;
 }
@@ -714,11 +817,50 @@ int16_t MINIXCompat_Processes_ExecuteWithHostParams(const char *executable_path,
 
     MINIXCompat_Arguments_Initialize(host_argc, host_argv, host_envc, host_envp);
 
-    // Ready to go!
+    // Ready to go! The ready state reinitializes the emulator; any existing emulator-side state is blown away.
 
     MINIXCompat_Execution_ChangeState(MINIXCompat_Execution_State_Ready);
 
+#if DEBUG_PROCESS_SYSCALLS
+    MINIXCompat_Log("exec_host(\"%s\")", executable_path);
+#endif
+
     return 0;
+}
+
+
+// MARK: - "Break" Handling
+
+int16_t MINIXCompat_Processes_brk(m68k_address_t minix_requested_addr, m68k_address_t *minix_resulting_addr)
+{
+    int16_t result;
+
+    assert(minix_resulting_addr != NULL);
+
+    // There is only one process and it has full run of the address space up to 0x00FE0000, so just allow any value up to that. Also keep track of the current break so it can be properly returned when requested.
+
+    static m68k_address_t minix_current_break = 0;
+
+    if (minix_current_break == 0) {
+        minix_current_break = MINIXCompat_Executable_Get_Initial_Break();
+    }
+
+    if ((minix_requested_addr < MINIXCompat_Executable_Limit)
+        && (minix_requested_addr >= MINIXCompat_Executable_Get_Initial_Break()))
+    {
+        result = 0;
+        *minix_resulting_addr = minix_requested_addr;
+        minix_current_break = minix_requested_addr;
+    } else {
+        result = -minix_ENOMEM;
+        *minix_resulting_addr = 0xFFFFFFFF; // MINIX-side ((char *)-1) value
+    }
+
+#if DEBUG_PROCESS_SYSCALLS
+    MINIXCompat_Log("brk(0x%08x, %p = 0x%08x) -> %d", minix_requested_addr, minix_resulting_addr, minix_requested_addr, result);
+#endif
+
+    return result;
 }
 
 

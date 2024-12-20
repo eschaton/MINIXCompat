@@ -23,13 +23,13 @@
 #include "MINIXCompat_Emulation.h"
 #include "MINIXCompat_Executable.h"
 #include "MINIXCompat_Filesystem.h"
+#include "MINIXCompat_Logging.h"
 #include "MINIXCompat_Messages.h"
 #include "MINIXCompat_Processes.h"
 #include "MINIXCompat_SysCalls.h"
 
 
 static MINIXCompat_Execution_State MINIXCompat_State = MINIXCompat_Execution_State_Started;
-static int MINIXCompat_exit_status = EX_OK;
 
 
 int main(int argc, char **argv, char **envp)
@@ -43,6 +43,7 @@ int main(int argc, char **argv, char **envp)
 
     // Initialize subsystems.
 
+    MINIXCompat_Log_Initialize();
     MINIXCompat_Filesystem_Initialize();
     MINIXCompat_CPU_Initialize();
     MINIXCompat_Processes_Initialize();
@@ -89,7 +90,7 @@ int main(int argc, char **argv, char **envp)
 
     // Exit with whatever our exit code should be.
 
-	return MINIXCompat_exit_status;
+	return MINIXCompat_Processes_ExitStatus;
 }
 
 
@@ -98,7 +99,7 @@ void MINIXCompat_Execution_ChangeState(MINIXCompat_Execution_State state)
     // Ensure a valid state transition, only these are allowed:
     // - start -> ready
     // - ready -> running
-    // - running -> ready
+    // - running -> ready (for exec)
     // - running -> finished
     // - finished -> finished (since exit(2) can be called multiple times before actually exiting)
 
@@ -109,11 +110,4 @@ void MINIXCompat_Execution_ChangeState(MINIXCompat_Execution_State state)
            || ((MINIXCompat_State == MINIXCompat_Execution_State_Finished) && (state == MINIXCompat_Execution_State_Finished)));
 
     MINIXCompat_State = state;
-}
-
-
-void MINIXCompat_exit(int status)
-{
-    MINIXCompat_exit_status = status;
-    MINIXCompat_Execution_ChangeState(MINIXCompat_Execution_State_Finished);
 }

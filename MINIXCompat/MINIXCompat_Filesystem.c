@@ -24,13 +24,24 @@
 
 #include "MINIXCompat_Types.h"
 #include "MINIXCompat_Errors.h"
+#include "MINIXCompat_Logging.h"
+
+
+#if DEBUG
+
+/*! Uncomment to log all filesystem syscall implementations and arguments (though not content). */
+//#define DEBUG_FILESYSTEM_SYSCALLS 1
+
+#endif
+
+
+MINIXCOMPAT_SOURCE_BEGIN
+
 
 #ifndef HTONS
 #define HTONS(x) ((x) = htons(x))
 #define HTONL(x) ((x) = htonl(x))
 #endif
-
-MINIXCOMPAT_SOURCE_BEGIN
 
 
 /*! Default directory of MINIX installation. */
@@ -273,11 +284,6 @@ static bool MINIXCompat_fd_IsOpen(minix_fd_t minix_fd)
     return (MINIXCompat_fd_table[minix_fd].minix_fd != -1);
 }
 
-static bool MINIXCompat_fd_IsClosed(minix_fd_t minix_fd)
-{
-    return (MINIXCompat_fd_table[minix_fd].minix_fd == -1);
-}
-
 static int MINIXCompat_fd_GetHostDescriptor(minix_fd_t minix_fd)
 {
     assert(MINIXCompat_fd_IsInRange(minix_fd));
@@ -421,12 +427,31 @@ static int MINIXCompat_File_HostWhenceForMINIXWhence(minix_whence_t minix_whence
     }
 }
 
+static minix_fd_t MINIXCompat_File_OpenOrCreate(const char *minix_path, int16_t minix_flags, minix_mode_t minix_mode);
+
 minix_fd_t MINIXCompat_File_Create(const char *minix_path, minix_mode_t minix_mode)
 {
-    return MINIXCompat_File_Open(minix_path, minix_O_CREAT | minix_O_TRUNC | minix_O_WRONLY, minix_mode);
+    minix_fd_t minix_fd = MINIXCompat_File_OpenOrCreate(minix_path, minix_O_CREAT | minix_O_TRUNC | minix_O_WRONLY, minix_mode);
+
+#if DEBUG_FILESYSTEM_SYSCALLS
+    MINIXCompat_Log("creat(\"%s\", %o) -> %d", minix_path, minix_mode, minix_fd);
+#endif
+
+    return minix_fd;
 }
 
 minix_fd_t MINIXCompat_File_Open(const char *minix_path, int16_t minix_flags, minix_mode_t minix_mode)
+{
+    minix_fd_t minix_fd = MINIXCompat_File_OpenOrCreate(minix_path, minix_flags, minix_mode);
+
+#if DEBUG_FILESYSTEM_SYSCALLS
+    MINIXCompat_Log("open(\"%s\", %06o, %06o) -> %d", minix_path, minix_flags, minix_mode, minix_fd);
+#endif
+
+    return minix_fd;
+}
+
+static minix_fd_t MINIXCompat_File_OpenOrCreate(const char *minix_path, int16_t minix_flags, minix_mode_t minix_mode)
 {
     int16_t result;
 
@@ -485,6 +510,10 @@ int16_t MINIXCompat_File_Close(minix_fd_t minix_fd)
 
     MINIXCompat_fd_ClearDescriptorEntry(minix_fd);
 
+#if DEBUG_FILESYSTEM_SYSCALLS
+    MINIXCompat_Log("close(%d) -> %d", minix_fd, result);
+#endif
+
     return result;
 }
 
@@ -501,6 +530,10 @@ int16_t MINIXCompat_File_Mkdir(const char *minix_path, minix_mode_t minix_mode)
     } else {
         result = mkdir_result;
     }
+
+#if DEBUG_FILESYSTEM_SYSCALLS
+    MINIXCompat_Log("mkdir(\"%s\", %o) -> %d", minix_path, minix_mode, result);
+#endif
 
     return result;
 }
@@ -532,6 +565,10 @@ int16_t MINIXCompat_File_Read(minix_fd_t minix_fd, void *host_buf, int16_t host_
         }
     }
 
+#if DEBUG_FILESYSTEM_SYSCALLS
+    MINIXCompat_Log("read(%d, %p, %d) -> %d", minix_fd, host_buf, host_buf_size, result);
+#endif
+
     return result;
 }
 
@@ -556,6 +593,10 @@ int16_t MINIXCompat_File_Write(minix_fd_t minix_fd, void *host_buf, int16_t host
     } else {
         result = -MINIXCompat_Errors_MINIXErrorForHostError(ENFILE);
     }
+
+#if DEBUG_FILESYSTEM_SYSCALLS
+    MINIXCompat_Log("write(%d, %p, %d) -> %d", minix_fd, host_buf, host_buf_size, result);
+#endif
 
     return result;
 }
@@ -583,6 +624,10 @@ int16_t MINIXCompat_File_Seek(minix_fd_t minix_fd, minix_off_t minix_offset, int
             result = seek_result;
         }
     }
+
+#if DEBUG_FILESYSTEM_SYSCALLS
+    MINIXCompat_Log("lseek(%d, %d, %d) -> %d", minix_fd, minix_offset, minix_whence, result);
+#endif
 
     return result;
 }
@@ -679,6 +724,12 @@ int16_t MINIXCompat_File_Stat(const char * _Nonnull minix_path, minix_stat_t * _
         result = -MINIXCompat_Errors_MINIXErrorForHostError(errno);
     }
 
+    free(host_path);
+
+#if DEBUG_FILESYSTEM_SYSCALLS
+    MINIXCompat_Log("stat(\"%s\", %p) -> %d", minix_path, minix_stat_buf, result);
+#endif
+
     return result;
 }
 
@@ -704,6 +755,10 @@ int16_t MINIXCompat_File_StatOpen(minix_fd_t minix_fd, minix_stat_t * _Nonnull m
         result = -MINIXCompat_Errors_MINIXErrorForHostError(errno);
     }
 
+#if DEBUG_FILESYSTEM_SYSCALLS
+    MINIXCompat_Log("fstat(%d, %p) -> %d", minix_fd, minix_stat_buf, result);
+#endif
+
     return result;
 }
 
@@ -723,6 +778,10 @@ int16_t MINIXCompat_File_Unlink(const char *minix_path)
     }
 
     free(host_path);
+
+#if DEBUG_FILESYSTEM_SYSCALLS
+    MINIXCompat_Log("unlink(\"%s\") -> %d", minix_path, result);
+#endif
 
     return result;
 }
@@ -747,6 +806,10 @@ int16_t MINIXCompat_File_Link(const char *minix_path, const char *minix_path2)
     free(host_path);
     free(host_path2);
 
+#if DEBUG_FILESYSTEM_SYSCALLS
+    MINIXCompat_Log("link(\"%s\", \"%s\") -> %d", minix_path, minix_path2, result);
+#endif
+
     return result;
 }
 
@@ -770,6 +833,10 @@ int16_t MINIXCompat_File_Rename(const char *minix_path, const char *minix_path2)
     free(host_path);
     free(host_path2);
 
+#if DEBUG_FILESYSTEM_SYSCALLS
+    MINIXCompat_Log("rename(\"%s\", \"%s\") -> %d", minix_path, minix_path2, result);
+#endif
+
     return result;
 }
 
@@ -791,6 +858,10 @@ minix_fd_t MINIXCompat_File_Access(const char *minix_path, minix_mode_t minix_mo
 
     free(host_path);
 
+#if DEBUG_FILESYSTEM_SYSCALLS
+    MINIXCompat_Log("access(\"%s\", %06o) -> %d", minix_path, minix_mode, result);
+#endif
+
     return result;
 }
 
@@ -810,6 +881,35 @@ minix_fd_t MINIXCompat_File_Chdir(const char *minix_path)
     }
 
     free(host_path);
+
+#if DEBUG_FILESYSTEM_SYSCALLS
+    MINIXCompat_Log("chdir(\"%s\") -> %d", minix_path, result);
+#endif
+
+    return result;
+}
+
+/*! Change a file's permissions */
+int16_t MINIXCompat_File_Chmod(const char *minix_path, minix_mode_t minix_mode)
+{
+    int16_t result;
+
+    assert(minix_path != NULL);
+    int host_mode = MINIXCompat_File_HostOpenModeForMINIXOpenMode(minix_mode);
+    char *host_path = MINIXCompat_Filesystem_CopyHostPathForPath(minix_path);
+
+    int chmod_err = chmod(host_path, host_mode);
+    if (chmod_err == 0) {
+        result = 0;
+    } else {
+        result = -MINIXCompat_Errors_MINIXErrorForHostError(errno);
+    }
+
+    free(host_path);
+
+#if DEBUG_FILESYSTEM_SYSCALLS
+    MINIXCompat_Log("mkdir(\"%s\", %o) -> %d", minix_path, minix_mode, result);
+#endif
 
     return result;
 }
@@ -988,25 +1088,6 @@ static int16_t MINIXCompat_Dir_Seek(minix_fd_t minix_fd, minix_off_t minix_offse
     } else {
         entry->dir_offset = new_off;
         result = 0;
-    }
-
-    return result;
-}
-
-/*! Change a file's permissions */
-int16_t MINIXCompat_File_Chmod(const char *minix_path, minix_mode_t minix_mode)
-{
-    int16_t result;
-
-    assert(minix_path != NULL);
-    int host_mode = MINIXCompat_File_HostOpenModeForMINIXOpenMode(minix_mode);
-    char *host_path = MINIXCompat_Filesystem_CopyHostPathForPath(minix_path);
-
-    int chmod_err = chmod(host_path, host_mode);
-    if (chmod_err == 0) {
-        result = 0;
-    } else {
-        result = -MINIXCompat_Errors_MINIXErrorForHostError(errno);
     }
 
     return result;

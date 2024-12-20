@@ -25,11 +25,21 @@
 #include "MINIXCompat_Errors.h"
 #include "MINIXCompat_Executable.h"
 #include "MINIXCompat_Filesystem.h"
+#include "MINIXCompat_Logging.h"
 #include "MINIXCompat_Messages.h"
 #include "MINIXCompat_Processes.h"
 
 
+#if DEBUG
+
+/*!
+ Uncomment to debug the syscall mechanism itself.
+
+ Value should range from 1..3 representing concise to verbose logging.
+ */
 //#define DEBUG_SYSCALL_MECHANISM 1
+
+#endif
 
 
 MINIXCOMPAT_SOURCE_BEGIN
@@ -292,10 +302,10 @@ minix_syscall_result_t MINIXCompat_System_Call(minix_syscall_func_t func, uint16
 {
     assert((func >= minix_syscall_func_send) && (func <= minix_syscall_func_both));
 
-#if DEBUG_SYSCALL_MECHANISM && (DEBUG_SYSCALL_MECHANISM > 1)
+#if DEBUG_SYSCALL_MECHANISM && (DEBUG_SYSCALL_MECHANISM > 2)
     // Log the message.
     const char * const func_str[3] = { "send", "receive", "sendrec" };
-    fprintf(stderr, "%s(src_dest: 0x%04hx, msg: *0x%08x)\n", func_str[func - 1], src_dest, msg);
+    MINIXCompat_Log("%s(src_dest: 0x%04hx, msg: *0x%08x)", func_str[func - 1], src_dest, msg);
 #endif
 
     minix_syscall_result_t result = minix_syscall_result_failure;
@@ -323,12 +333,12 @@ minix_syscall_result_t MINIXCompat_System_Call(minix_syscall_func_t func, uint16
                 assert((sc >= minix_syscall_unused0) && (sc <= minix_syscall_unused69));
 #if DEBUG_SYSCALL_MECHANISM
                 const char *scn = minix_syscall_name[sc];
-                fprintf(stderr, "syscall(%d): %s (%hd)\n", getpid(), scn, sc);
+                MINIXCompat_Log("syscall \"%s\" (%d)", scn, sc);
 #endif
                 minix_syscall_impl scimpl = minix_syscall_table[sc];
                 if (scimpl == NULL) {
 #if DEBUG_SYSCALL_MECHANISM
-                    fprintf(stderr, "unimplemented syscall: %s (%hd)\n", scn, sc);
+                    MINIXCompat_Log("unimplemented syscall \"%s\" (%hd)", scn, sc);
 #endif
                     result = minix_syscall_result_failure;
                 } else {
@@ -361,7 +371,7 @@ minix_syscall_result_t MINIXCompat_System_Call(minix_syscall_func_t func, uint16
     } else if (func == minix_syscall_func_receive) {
         // Blocking and waiting for a message via receive() isn't actually done by any user processes in the default system, so we aren't supporting it (yet).
 #if DEBUG_SYSCALL_MECHANISM
-        fprintf(stderr, "receive-only messages are not yet supported\n");
+        MINIXCompat_Log("receive-only messages are not yet supported");
 #endif
         result = minix_syscall_result_failure;
     } else {
@@ -389,7 +399,7 @@ minix_syscall_result_t MINIXCompat_SysCall_exit(minix_syscall_func_t func, uint1
 
     int16_t value = message->m1_i1;
 
-    MINIXCompat_exit(value);
+    MINIXCompat_Processes_exit(value);
 
     return minix_syscall_result_success_empty;
 }
@@ -857,21 +867,7 @@ minix_syscall_result_t MINIXCompat_SysCall_brk(minix_syscall_func_t func, uint16
 
     m68k_address_t minix_requested_addr = message->m1_p1;
     m68k_address_t minix_resulting_addr;
-    int16_t minix_brk_error = 0;
-
-    // There is only one process and it has full run of the address space up to 0x00FE0000, so just allow any value up to that. Also keep track of the current break since we never allow it to be set lower.
-
-    static m68k_address_t minix_current_break = 0;
-
-    if ((minix_requested_addr < MINIXCompat_Executable_Limit)
-        && (minix_requested_addr >= MINIXCompat_Executable_Get_Initial_Break()))
-    {
-        minix_resulting_addr = minix_requested_addr;
-        minix_current_break = minix_resulting_addr;
-    } else {
-        minix_brk_error = -minix_ENOMEM;
-        minix_resulting_addr = 0xFFFFFFFF; // MINIX-side ((char *)-1) value
-    }
+    int16_t minix_brk_error = MINIXCompat_Processes_brk(minix_requested_addr, &minix_resulting_addr);
 
     // brk(2) replies mess2
     // - m.m2_p1: new break address

@@ -145,12 +145,6 @@ typedef enum minix_syscall_result: int16_t {
 MINIXCOMPAT_EXTERN minix_syscall_result_t MINIXCompat_System_Call(minix_syscall_func_t func, uint16_t src_dest, m68k_address_t msg, uint32_t * _Nonnull out_result);
 
 
-/*!
- Causes MINIXCompat to `exit(2)` with the given \a status value, at an appropriate point.
- */
-MINIXCOMPAT_EXTERN void MINIXCompat_exit(int status);
-
-
 MINIXCOMPAT_HEADER_END
 
 
