@@ -908,7 +908,7 @@ int16_t MINIXCompat_File_Chmod(const char *minix_path, minix_mode_t minix_mode)
     free(host_path);
 
 #if DEBUG_FILESYSTEM_SYSCALLS
-    MINIXCompat_Log("mkdir(\"%s\", %o) -> %d", minix_path, minix_mode, result);
+    MINIXCompat_Log("chmod(\"%s\", %o) -> %d", minix_path, minix_mode, result);
 #endif
 
     return result;
