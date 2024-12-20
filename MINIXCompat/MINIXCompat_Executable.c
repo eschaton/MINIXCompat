@@ -94,7 +94,9 @@ int MINIXCompat_Executable_Load(FILE *pef, struct MINIXCompat_Executable * _Null
     struct minix_exec *exec_h = &peh->exec_h;
 
     uint32_t text_clicks = MINIX_CLICK_ROUND(exec_h->a_text);
-    uint32_t total_clicks = MINIX_CLICK_ROUND(exec_h->a_total);
+    uint32_t data_clicks = MINIX_CLICK_ROUND(exec_h->a_data);
+    uint32_t bss_clicks = MINIX_CLICK_ROUND(exec_h->a_bss);
+    uint32_t total_clicks = text_clicks + data_clicks + bss_clicks;
 
     uint8_t *buf = calloc(total_clicks * MINIX_CLICK_SIZE, 1);
     if (buf == NULL) return -ENOMEM;
@@ -130,7 +132,7 @@ int MINIXCompat_Executable_Load(FILE *pef, struct MINIXCompat_Executable * _Null
     if (relocate_err != 0) return -relocate_err;
 
     // Set up the process' initial break
-    minix_initial_break = exec_h->a_text + exec_h->a_data + exec_h->a_bss;
+    minix_initial_break = total_clicks * MINIX_CLICK_SIZE;
 
     return 0;
 }
