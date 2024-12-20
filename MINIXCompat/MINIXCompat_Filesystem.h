@@ -132,7 +132,7 @@ MINIXCOMPAT_EXTERN minix_fd_t MINIXCompat_File_Open(const char *minix_path, int1
 MINIXCOMPAT_EXTERN int16_t MINIXCompat_File_Close(minix_fd_t fd);
 
 /*! Make the directory with the given MINIX mode */
-int16_t MINIXCompat_File_Mkdir(const char *minix_path, minix_mode_t minix_mode);
+MINIXCOMPAT_EXTERN int16_t MINIXCompat_File_Mkdir(const char *minix_path, minix_mode_t minix_mode);
 
 /*! Reads the specified amount of data from the given file descriptor into the given host-side buffer. Returns the number of bytes read or `-errno` on error. */
 MINIXCOMPAT_EXTERN int16_t MINIXCompat_File_Read(minix_fd_t fd, void * _Nonnull buf, int16_t buf_size);

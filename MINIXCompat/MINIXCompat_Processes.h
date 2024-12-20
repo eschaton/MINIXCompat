@@ -43,6 +43,16 @@ MINIXCOMPAT_EXTERN minix_pid_t MINIXCompat_Processes_fork(void);
  */
 MINIXCOMPAT_EXTERN minix_pid_t MINIXCompat_Processes_wait(int16_t * _Nonnull minix_stat_loc);
 
+/*!
+ Exit with a given status.
+ */
+MINIXCOMPAT_EXTERN void MINIXCompat_Processes_exit(int16_t minix_status);
+
+/*!
+ The exit status to use.
+ */
+MINIXCOMPAT_EXTERN int MINIXCompat_Processes_ExitStatus;
+
 
 /*! The type of a MINIX signal. */
 typedef enum minix_signal: int16_t {
@@ -124,6 +134,14 @@ MINIXCOMPAT_EXTERN int16_t MINIXCompat_Processes_ExecuteWithStackBlock(const cha
  - Warning: This resets the emulation environment and should only be invoked after startup or a `fork(2)` call.
  */
 MINIXCOMPAT_EXTERN int16_t MINIXCompat_Processes_ExecuteWithHostParams(const char *executable_path, int16_t argc, char * _Nullable * _Nonnull argv, char * _Nullable * _Nonnull envp);
+
+
+/*!
+ Adjust the "break," which is the size of uninitialized data for the process.
+
+ - Note: The break can never be lower than the BSS but can extend to the top of the area reserved for the stack.
+ */
+MINIXCOMPAT_EXTERN int16_t MINIXCompat_Processes_brk(m68k_address_t minix_requested_addr, m68k_address_t * _Nonnull minix_resulting_addr);
 
 
 MINIXCOMPAT_HEADER_END

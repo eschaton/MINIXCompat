@@ -87,6 +87,11 @@
             value = "/usr/bin:/bin"
             isEnabled = "YES">
          </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "MINIXCOMPAT_LOG_DIR"
+            value = "/tmp/MC"
+            isEnabled = "YES">
+         </EnvironmentVariable>
       </EnvironmentVariables>
    </LaunchAction>
    <ProfileAction
