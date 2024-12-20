@@ -153,6 +153,7 @@ MINIXCOMPAT_EXTERN int16_t MINIXCompat_File_Rename(const char *minix_path, const
 
 MINIXCOMPAT_EXTERN minix_fd_t MINIXCompat_File_Access(const char *minix_path, minix_mode_t minix_mode);
 MINIXCOMPAT_EXTERN minix_fd_t MINIXCompat_File_Chdir(const char *minix_path);
+MINIXCOMPAT_EXTERN int16_t MINIXCompat_File_Chmod(const char *minix_path, minix_mode_t minix_mode);
 
 
 MINIXCOMPAT_HEADER_END
