@@ -41,6 +41,10 @@ MINIXCOMPAT_EXTERN m68k_address_t MINIXCompat_CPU_Push_16(uint16_t value);
 MINIXCOMPAT_EXTERN m68k_address_t MINIXCompat_CPU_Push_32(uint32_t value);
 
 
+/*! Clear the emulated RAM. */
+MINIXCOMPAT_EXTERN void MINIXCompat_RAM_Clear(void);
+
+
 /*! Read the 8-bit byte at \a m68k_address from RAM. */
 MINIXCOMPAT_EXTERN uint8_t MINIXCompat_RAM_Read_8(m68k_address_t m68k_address);
 

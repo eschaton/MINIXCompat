@@ -40,10 +40,9 @@ static int MINIXCompat_CPU_Trap_Callback(int trap);
 
 int MINIXCompat_CPU_Initialize(void)
 {
-    // Configure the RAM.
+    // Configure and clear the RAM.
 
-    MINIXCompat_RAM = calloc(16 * 1024 * 1024, sizeof(uint8_t));
-    assert(MINIXCompat_RAM != NULL);
+    MINIXCompat_RAM_Clear();
 
     // Configure the CPU.
 
@@ -156,6 +155,17 @@ static int MINIXCompat_CPU_Trap_Callback(int trap)
     }
 
     return handled ? 1 : 0;
+}
+
+
+void MINIXCompat_RAM_Clear(void)
+{
+    if (MINIXCompat_RAM == NULL) {
+        MINIXCompat_RAM = calloc(16 * 1024 * 1024, sizeof(uint8_t));
+        assert(MINIXCompat_RAM != NULL); // we can't do much without RAM
+    } else {
+        memset(MINIXCompat_RAM, 0, 16 * 1024 * 1024);
+    }
 }
 
 

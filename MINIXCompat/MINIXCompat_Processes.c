@@ -749,6 +749,10 @@ done:
 
 int16_t MINIXCompat_Processes_ExecuteWithStackBlock(const char *executable_path, void *stack_on_host, int16_t stack_size)
 {
+    // Clear out 68K memory.
+
+    MINIXCompat_RAM_Clear();
+
     // Load and relocate the executable.
 
     int16_t load_err = MINIXCompat_Processes_LoadTool(executable_path);
@@ -756,7 +760,7 @@ int16_t MINIXCompat_Processes_ExecuteWithStackBlock(const char *executable_path,
         return load_err;
     }
 
-    // Relocate the stack.
+    // Relocate the initial stack, which was copied out of 68K memory before clear.
 
     uint32_t *stack = stack_on_host;
     stack++; // skip argc
