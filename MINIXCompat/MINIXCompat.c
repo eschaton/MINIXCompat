@@ -73,9 +73,10 @@ int main(int argc, char **argv, char **envp)
             case MINIXCompat_Execution_State_Running: {
                 // Run the emulated CPU for a bunch of cycles.
 
-                (void) MINIXCompat_CPU_Run(10000);
+                (void) MINIXCompat_CPU_Run(100);
 
                 // If the execution state hasn't changed as a result of running the emulated CPU, handle any pending signals.
+                // FIXME: Can drop signal(s) if they happen during exec(2).
 
                 if (MINIXCompat_State == MINIXCompat_Execution_State_Running) {
                     MINIXCompat_Processes_HandlePendingSignals();
