@@ -40,7 +40,9 @@
       debugDocumentVersioning = "YES"
       debugServiceExtension = "internal"
       allowLocationSimulation = "YES"
-      viewDebuggingEnabled = "No">
+      viewDebuggingEnabled = "No"
+      consoleMode = "0"
+      structuredConsoleMode = "2">
       <BuildableProductRunnable
          runnableDebuggingMode = "0">
          <BuildableReference
@@ -54,11 +56,15 @@
       <CommandLineArguments>
          <CommandLineArgument
             argument = "/usr/bin/cc -v -c hello.c"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "/usr/bin/cc -v sigtest.c -o sigtest"
             isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "/bin/ls -alF /usr/src/commands"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
       </CommandLineArguments>
       <EnvironmentVariables>

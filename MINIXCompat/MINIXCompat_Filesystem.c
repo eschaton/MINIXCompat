@@ -30,7 +30,7 @@
 #if DEBUG
 
 /*! Uncomment to log all filesystem syscall implementations and arguments (though not content). */
-//#define DEBUG_FILESYSTEM_SYSCALLS 1
+#define DEBUG_FILESYSTEM_SYSCALLS 1
 
 #endif
 

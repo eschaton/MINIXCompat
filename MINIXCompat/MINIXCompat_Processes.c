@@ -44,7 +44,7 @@
 //#define DEBUG_SIGNAL 1
 
 /*! Uncomment to trace process-related system calls. */
-//#define DEBUG_PROCESS_SYSCALLS 1
+#define DEBUG_PROCESS_SYSCALLS 1
 
 #endif
 
@@ -173,6 +173,20 @@ static size_t MINIXCompat_Processes_NextFreeTableEntry(void)
     return first_new_entry;
 }
 
+/*! Remove the given MINIX process from the process table. */
+static void MINIXCompat_Processes_RemoveMINIXProcess(minix_pid_t minix_pid)
+{
+    assert(minix_pid > 0);
+
+    for (size_t i = 0; i < MINIXCompat_ProcessTable_Size; i++) {
+        if (MINIXCompat_ProcessTable[i].minix_pid == minix_pid) {
+            MINIXCompat_ProcessTable[i].minix_pid = 0;
+            MINIXCompat_ProcessTable[i].host_pid = 0;
+            break;
+        }
+    }
+}
+
 void MINIXCompat_Processes_GetProcessIDs(minix_pid_t * _Nonnull minix_pid, minix_pid_t * _Nonnull minix_ppid)
 {
     assert(minix_pid != NULL);
@@ -238,13 +252,21 @@ minix_pid_t MINIXCompat_Processes_fork(void)
             sleep(1);
         } while (!continue_child);
 #endif
+        sleep(5);
+
         // This is the child. Reinitialize logging (if it's a thing).
 
         MINIXCompat_Log_Initialize();
 
+        // Put the old parent in the slot that the parent uses for this child, just in case. (That way there's no information lost in the fork(2) call.)
 
         MINIXCompat_ProcessTable[new_process_entry].host_pid = MINIXCompat_ProcessTable[1].host_pid;
         MINIXCompat_ProcessTable[new_process_entry].minix_pid = MINIXCompat_ProcessTable[1].minix_pid;
+
+        // Adjust the handy globals for parent and self identities.
+
+        minix_self_ppid = minix_self_pid;
+        minix_self_pid = new_minix_process;
 
         // Now adjust the parent and self entries in the process table.
 
@@ -266,9 +288,43 @@ minix_pid_t MINIXCompat_Processes_fork(void)
     return result;
 }
 
-static int16_t MINIXCompat_Processes_MINIXStatForHostStat(int host_stat)
+
+/*! A MINIX wait status. */
+typedef union minix_wait_stat {
+    int16_t raw;
+    struct {
+        uint8_t exitstat;
+        uint8_t sigstat;
+    } cooked MINIXCOMPAT_PACK_STRUCT;
+} minix_wait_stat_t;
+
+
+static bool MINIXCompat_WIFEXITED(minix_wait_stat_t minix_wait_stat)
 {
-    int16_t minix_stat = 0;
+    return (minix_wait_stat.cooked.sigstat == 0);
+}
+
+static bool MINIXCompat_WIFSIGNALED(minix_wait_stat_t minix_wait_stat)
+{
+    return (minix_wait_stat.cooked.exitstat == 0);
+}
+
+static minix_signal_t MINIXCompat_WTERMSIG(minix_wait_stat_t minix_wait_stat)
+{
+    return (minix_signal_t) minix_wait_stat.cooked.sigstat;
+}
+
+static int16_t MINIXCompat_WEXITSTATUS(minix_wait_stat_t minix_wait_stat)
+{
+    return (int16_t) minix_wait_stat.cooked.exitstat;
+}
+
+
+/*! Figure out the MINIX wait status for the given host wait status. */
+static minix_wait_stat_t MINIXCompat_Processes_MINIXStatForHostStat(int host_stat)
+{
+    minix_wait_stat_t minix_wait_stat;
+    minix_wait_stat.raw = 0;
 
     // The MINIX status has three separate styles:
     //
@@ -282,19 +338,38 @@ static int16_t MINIXCompat_Processes_MINIXStatForHostStat(int host_stat)
     // Portably construct this using the matching info in the host status.
 
     if (WIFEXITED(host_stat)) {
-        minix_stat = WEXITSTATUS(host_stat);
+        minix_wait_stat.cooked.exitstat = WEXITSTATUS(host_stat);
     } else if (WIFSTOPPED(host_stat)) {
-        minix_stat = (WSTOPSIG(host_stat) << 8) | 0177;
+        minix_wait_stat.cooked.exitstat = WSTOPSIG(host_stat);
+        minix_wait_stat.cooked.sigstat = 0177;
     } else if (WIFSIGNALED(host_stat)) {
-        minix_stat = WTERMSIG(host_stat) << 8;
+        minix_wait_stat.cooked.exitstat = WTERMSIG(host_stat);
     } else {
-        // Unsupported case on MINIX, just treat as killed by SIGKILL:
-        // MSB == 0, LSB == 0x09.
-        minix_stat = 0x0009;
+        // Unsupported case on MINIX, just treat as killed by SIGKILL.
+        minix_wait_stat.cooked.exitstat = (uint8_t) minix_SIGKILL;
     }
 
-    return minix_stat;
+    return minix_wait_stat;
 }
+
+#if DEBUG_PROCESS_SYSCALLS
+char *MINIXCompat_Processes_StringForWaitStat(minix_wait_stat_t minix_wait_stat)
+{
+    static char buf[64] = {0};
+
+    // See above for MINIX status layout.
+
+    if (MINIXCompat_WIFEXITED(minix_wait_stat)) {
+        snprintf(buf, 64, "exited(%d)", MINIXCompat_WEXITSTATUS(minix_wait_stat));
+    } else if (MINIXCompat_WIFSIGNALED(minix_wait_stat)) {
+        snprintf(buf, 64, "signaled(%d)", MINIXCompat_WTERMSIG(minix_wait_stat));
+    } else {
+        snprintf(buf, 64, "other(0x%04x)", minix_wait_stat.raw);
+    }
+
+    return buf;
+}
+#endif
 
 minix_pid_t MINIXCompat_Processes_wait(int16_t * _Nonnull minix_stat_loc)
 {
@@ -303,15 +378,39 @@ minix_pid_t MINIXCompat_Processes_wait(int16_t * _Nonnull minix_stat_loc)
     minix_pid_t minix_pid;
 
     int host_stat = 0;
-    pid_t host_pid = wait(&host_stat);
+    pid_t host_pid;
+
+    // Ensure wait(2) doesn't fail with EINTR since most MINIX code won't handle that well.
+    do host_pid = wait(&host_stat);
+    while(host_pid == -1 && errno == EINTR);
+
     if (host_pid == -1) {
         minix_pid = -MINIXCompat_Errors_MINIXErrorForHostError(errno);
     } else {
-        minix_pid = MINIXCompat_Processes_MINIXProcessForHostProcess(host_pid);
-        int16_t minix_stat = MINIXCompat_Processes_MINIXStatForHostStat(host_stat);
+        // Construct the return values.
 
-        *minix_stat_loc = minix_stat;
+        minix_pid = MINIXCompat_Processes_MINIXProcessForHostProcess(host_pid);
+        minix_wait_stat_t minix_stat = MINIXCompat_Processes_MINIXStatForHostStat(host_stat);
+
+        *minix_stat_loc = minix_stat.raw;
+
+        // Maintain the process table: If the given process exited or was signaled,
+
+        if (MINIXCompat_WIFEXITED(minix_stat)
+            || MINIXCompat_WIFSIGNALED(minix_stat))
+        {
+            MINIXCompat_Processes_RemoveMINIXProcess(minix_pid);
+        }
     }
+
+#if DEBUG_PROCESS_SYSCALLS
+    {
+        minix_wait_stat_t minix_wait_stat;
+        minix_wait_stat.raw = *minix_stat_loc;
+        char *minix_stat_str = MINIXCompat_Processes_StringForWaitStat(minix_wait_stat);
+        MINIXCompat_Log("wait(%p = %s) -> %d", minix_stat_loc, minix_stat_str, minix_pid);
+    }
+#endif
 
     return minix_pid;
 }
