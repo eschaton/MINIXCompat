@@ -11,6 +11,8 @@
 
 #include "MINIXCompat_Types.h"
 
+#include <stdarg.h>
+
 
 MINIXCOMPAT_HEADER_BEGIN
 
