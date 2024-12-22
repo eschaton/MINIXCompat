@@ -9,6 +9,8 @@
 #include "MINIXCompat_Logging.h"
 
 #include <assert.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -38,7 +40,7 @@ static char MINIXCompat_Log_Path[1024] = {0};
 
 
 /*! The file being logged to. */
-static FILE *MINIXCompat_Log_File = NULL;
+static int MINIXCompat_Log_File = -1;
 
 
 /*! Create a new log file when needed. */
@@ -56,8 +58,9 @@ void MINIXCompat_Log_New(void)
 {
     // If there's already a log (say one that's been inherited across a fork(2), close it.
 
-    if (MINIXCompat_Log_File != NULL) {
-        fclose(MINIXCompat_Log_File);
+    if (MINIXCompat_Log_File != -1) {
+        close(MINIXCompat_Log_File);
+        MINIXCompat_Log_File = -1;
     }
 
     // Get the directory to log into, using /tmp if none is specified.
@@ -84,8 +87,49 @@ void MINIXCompat_Log_New(void)
 
     // Open the log and crash if we can't.
 
-    MINIXCompat_Log_File = fopen(MINIXCompat_Log_Path, "w");
-    assert(MINIXCompat_Log_File != NULL);
+    do {
+        MINIXCompat_Log_File = open(MINIXCompat_Log_Path,
+                                    O_WRONLY | O_CREAT|O_EXCL|O_CLOEXEC,
+                                    S_IRUSR|S_IWUSR | S_IRGRP | S_IROTH);
+    } while ((MINIXCompat_Log_File == -1) && (errno != EINTR));
+
+    if (MINIXCompat_Log_File == -1) {
+        int log_errno = errno;
+        fprintf(stderr, "%d: failed to create log file at '%s', errno = %d" "\n", getpid(), MINIXCompat_Log_Path, log_errno);
+        fflush(stderr);
+    }
+    assert(MINIXCompat_Log_File != -1);
+
+    // Put a header on the log.
+
+    MINIXCompat_Log("Opened log.");
+}
+
+
+static void MINIXCompat_Log_WriteBuffer(const void *buf, const size_t buf_size)
+{
+    ssize_t written;
+    size_t remaining = buf_size;
+    do {
+        written = write(MINIXCompat_Log_File, &buf[buf_size - remaining], remaining);
+        if (written > 0) {
+            remaining -= written;
+        }
+    } while (((written == -1) && (errno == EINTR))
+             && (remaining > 0));
+
+    if (written == -1) {
+        int saved_errno = errno;
+        fprintf(stderr, "%d: Write to log failed: %d\n", getpid(), saved_errno);
+    }
+
+    assert(written != -1);
+}
+
+static void MINIXCompat_Log_WriteString(const char *str)
+{
+    const size_t str_len = strlen(str);
+    MINIXCompat_Log_WriteBuffer(str, str_len);
 }
 
 
@@ -97,7 +141,6 @@ void MINIXCompat_Log(const char *fmt, ...)
     va_end(ap);
 }
 
-
 void MINIXCompat_Logv(const char *fmt, va_list args)
 {
     pid_t curpid = getpid();
@@ -106,11 +149,18 @@ void MINIXCompat_Logv(const char *fmt, va_list args)
         MINIXCompat_Log_New();
     }
 
-    fprintf(MINIXCompat_Log_File, "%d: ", curpid);
-    vfprintf(MINIXCompat_Log_File, fmt, args);
+    char logbuf[1024];
+    const char * const newline = "\n";
+
+    snprintf(logbuf, 1024, "%d: ", curpid);
+    MINIXCompat_Log_WriteString(logbuf);
+
+    vsnprintf(logbuf, 1024, fmt, args);
+    MINIXCompat_Log_WriteString(logbuf);
+
     size_t fmt_len = strlen(fmt);
     if (fmt[fmt_len - 1] != '\n') {
-        fprintf(MINIXCompat_Log_File, "\n");
+        MINIXCompat_Log_WriteString(newline);
     }
 }
 
