@@ -18,6 +18,8 @@
 #include <string.h>
 #include <unistd.h>
 
+#include <sys/stat.h>
+
 
 MINIXCOMPAT_SOURCE_BEGIN
 
