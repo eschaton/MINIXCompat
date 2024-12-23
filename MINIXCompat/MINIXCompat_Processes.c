@@ -380,9 +380,9 @@ minix_pid_t MINIXCompat_Processes_wait(int16_t * _Nonnull minix_stat_loc)
     int host_stat = 0;
     pid_t host_pid;
 
-    // Ensure wait(2) doesn't fail with EINTR since most MINIX code won't handle that well.
+    // Ensure wait(2) doesn't fail with EINTR or ECHILD since most MINIX code won't handle that well.
     do host_pid = wait(&host_stat);
-    while(host_pid == -1 && errno == EINTR);
+    while (host_pid == -1 && ((errno == EINTR) || (errno == ECHILD)));
 
     if (host_pid == -1) {
         minix_pid = -MINIXCompat_Errors_MINIXErrorForHostError(errno);
@@ -416,11 +416,15 @@ minix_pid_t MINIXCompat_Processes_wait(int16_t * _Nonnull minix_stat_loc)
 }
 
 
+bool MINIXCompat_Processes_Exited = false;
 int MINIXCompat_Processes_ExitStatus = 0;
 
 
 void MINIXCompat_Processes_exit(int16_t status)
 {
+    if (MINIXCompat_Processes_Exited) return; // avoid multiple calls to exit(2)
+
+    MINIXCompat_Processes_Exited = true;
     MINIXCompat_Processes_ExitStatus = status;
     MINIXCompat_Execution_ChangeState(MINIXCompat_Execution_State_Finished);
 
